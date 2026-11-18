@@ -1,0 +1,34 @@
+
+# Dependencias
+**/node_modules/
+
+# Archivos compilados
+**/dist/
+**/build/
+**/coverage/
+
+# Variables de entorno y credenciales
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+
+# Registros
+**/*.log
+npm-debug.log*
+
+# Bases de datos locales
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/*.db-wal
+**/*.db-shm
+
+# Archivos temporales de Windows
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Configuración local de editores
+.vscode/
+.idea/

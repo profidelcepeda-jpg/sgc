@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SGA – Sistema de Gestión Académica</title>
+<?!= incluir_('Styles'); ?>
+</head>
+<body>
+<div id="login" class="hidden"><div class="lbox"><div class="sga-logo" role="img" aria-label="SGA – Sistema de Gestión Académica"></div><div id="lMsg" class="msg bad hidden"></div>
+<label for="lUser">Usuario (su nombre)</label><input id="lUser" autocomplete="username" autocapitalize="none"><label for="lPass">PIN de 4 dígitos</label><input id="lPass" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••">
+<button class="btn" id="lGo">Entrar</button></div></div>
+<div id="loading"><div class="spin"></div><span id="loadTxt">Cargando…</span></div>
+<div id="app" class="hidden">
+  <header class="top">
+    <button id="menuBtn" aria-label="Menú">☰</button>
+    <div class="brand" role="img" aria-label="SGA – Sistema de Gestión Académica" title="SGA – Sistema de Gestión Académica"></div>
+    <div class="grow"></div>
+    <label style="font-size:12px">Año escolar&nbsp;<select id="anoSel"></select></label>
+    <div id="userBox"></div>
+  </header>
+  <div class="layout">
+    <nav id="nav"></nav>
+    <main id="main"></main>
+  </div>
+</div>
+<div id="modalBg" class="hidden"><div id="modal"></div></div>
+<div id="toast"></div>
+
+<?!= incluir_('JavaScript'); ?>
+<script>
+document.getElementById('lGo').onclick = entrar;
+document.getElementById('lPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') entrar(); });
+document.getElementById('lUser').addEventListener('keydown', function (e) { if (e.key === 'Enter') document.getElementById('lPass').focus(); });
+</script>
+</body>
+</html>

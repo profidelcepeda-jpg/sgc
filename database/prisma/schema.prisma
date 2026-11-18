@@ -1,0 +1,554 @@
+// SGA — Esquema de base de datos (Fase 2 de la migración)
+// Construido a partir del análisis del Excel real: documentacion/SGAp_Base_de_Datos.xlsx
+// Ver SGA/docs/database/analisis-datos-reales.md y modelo-datos-legacy.md
+//
+// Convenciones:
+// - Los IDs legado (EST-000001, SEC-000001, ...) se conservan como claves primarias de
+//   texto: preservan referencias históricas y simplifican la importación.
+// - Los años escolares ("2026-2027") son entidades propias (SchoolYear).
+// - CLAVE_GRUPO desaparece: se reemplaza por índices únicos compuestos.
+// - Los estados se guardan con los valores EXACTOS del sistema original.
+
+generator client {
+  provider = "prisma-client-js"
+  // Salida compartida del monorepo: SGA/node_modules/.prisma/client — la resuelven
+  // backend y database al caminar hacia arriba por node_modules.
+  output   = "../../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Configuración ─────────────────────────
+
+model Config {
+  clave             String    @id // p. ej. ANO_ESCOLAR, NOTA_MINIMA, PCT_COMPLETIVA_CF
+  valor             String
+  descripcion       String?
+  fechaModificacion String?   @map("fecha_modificacion")
+
+  @@map("config")
+}
+
+// ───────────────────────── Seguridad y usuarios ─────────────────────────
+
+model Role {
+  id          String  @id // "ADMINISTRADOR" | "COORDINADOR" | "DOCENTE" | "CONSULTA"
+  nombre      String
+  descripcion String?
+  esSistema   Boolean @default(false)
+  estado      String  @default("ACTIVO") // ACTIVO | INACTIVO
+  creado      DateTime?
+  modificado  DateTime?
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id // 41 permisos del catálogo: calificaciones.*, usuarios.*, ...
+  modulo      String
+  descripcion String
+
+  roles RolePermission[]
+
+  @@map("permisos")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("rol_permisos")
+}
+
+model User {
+  id                 String   @id // USR-000001
+  nombre             String
+  apellidos          String
+  correo             String?
+  usuario            String   @unique // nombre de usuario o "707" (PIN de acceso del docente)
+  rolId              String   @map("rol_id")
+  teacherId          String?  @unique @map("teacher_id") // docentes usan su PIN como usuario
+  permisosExtra      String[] @default([]) @map("permisos_extra") // CSV legado separado por comas
+  permisosDenegados  String[] @default([]) @map("permisos_denegados")
+  estado             String   @default("ACTIVO")
+  creado             DateTime?
+  modificado         DateTime?
+  ultimoAcceso       DateTime? @map("ultimo_acceso")
+  sesionesRevocadas  DateTime? @map("sesiones_revocadas") // reemplaza la propiedad REV_<idUsuario>
+
+  role        Role         @relation(fields: [rolId], references: [id])
+  teacher     Teacher?     @relation(fields: [teacherId], references: [id])
+  sessions    Session[]
+  credential  Credential?
+
+  @@map("users")
+}
+
+model Credential {
+  userId           String    @unique @map("user_id")
+  hash             String
+  salt             String
+  version          Int       @default(2) // v1 = SHA-256x400 legado; v2 = con pepper; rehash al login
+  debeCambiar      Boolean   @default(false) @map("debe_cambiar")
+  intentosFallidos Int       @default(0) @map("intentos_fallidos")
+  bloqueadoHasta   DateTime? @map("bloqueado_hasta")
+  fechaCambio      DateTime? @map("fecha_cambio")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("credenciales")
+}
+
+model Session {
+  id              String   @id // SES-000001
+  userId          String   @map("user_id")
+  tokenHash       String   @unique @map("token_hash") // el token en claro nunca se guarda
+  creada          DateTime
+  expira          DateTime
+  ultimaActividad DateTime  @map("ultima_actividad")
+  estado          String   @default("ACTIVA") // ACTIVA | CERRADA | EXPIRADA
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sesiones")
+}
+
+// ───────────────────────── Personal académico ─────────────────────────
+
+model Teacher {
+  id             String   @id // DOC-000001
+  titulo         String?  // "Lic.", "Licda.", "Licdo."
+  nombres        String?  // el legado puede dejar celdas vacías en las partes del nombre
+  apellidos      String?  // (dato real: "Elis" sin apellidos, "Heredia" solo en apellidos)
+  nombreCompleto String   @map("nombre_completo")
+  correo         String?
+  telefono       String?
+  estado         String   @default("ACTIVO")
+  creado         DateTime?
+  modificado     DateTime?
+
+  user         User?
+  assignments  TeachingAssignment[]
+  tutorings    TutoringAssignment[]
+  observations Observation[]
+  gradeRecords GradeRecord[]
+
+  @@map("teachers")
+}
+
+// ───────────────────────── Estructura escolar ─────────────────────────
+
+model SchoolYear {
+  id String @id // "2026-2027"
+
+  courses     Course[]
+  periods     Period[]
+  enrollments Enrollment[]
+  assignments TeachingAssignment[]
+  tutorings   TutoringAssignment[]
+  gradeRecords GradeRecord[]
+  results     ResultSummary[]
+  attendance  Attendance[]
+  observations Observation[]
+
+  @@map("school_years")
+}
+
+model Course {
+  id          String  @id // CUR-000001
+  schoolYearId String @map("school_year_id")
+  nivel       String  // "Secundaria" (verificado en datos reales)
+  grado       String  // "1ro".."6to" según CONFIG.GRADOS
+  estado      String  @default("ACTIVO")
+  creado      DateTime?
+  modificado  DateTime?
+
+  schoolYear   SchoolYear           @relation(fields: [schoolYearId], references: [id])
+  sections     Section[]
+  enrollments  Enrollment[]
+  assignments  TeachingAssignment[]
+  tutorings    TutoringAssignment[]
+  observations Observation[]
+  gradeRecords GradeRecord[]
+
+  @@unique([schoolYearId, grado])
+  @@map("courses")
+}
+
+model Section {
+  id        String  @id // SEC-000001
+  courseId  String  @map("course_id")
+  seccion   String  // letra: "A", "B"
+  estado    String  @default("ACTIVO")
+  creado    DateTime?
+  modificado DateTime?
+
+  course       Course               @relation(fields: [courseId], references: [id])
+  enrollments  Enrollment[]
+  assignments  TeachingAssignment[]
+  tutorings    TutoringAssignment[]
+  gradeRecords GradeRecord[]
+  results      ResultSummary[]
+  attendance   Attendance[]
+  observations Observation[]
+
+  @@unique([courseId, seccion])
+  @@map("sections")
+}
+
+model Student {
+  id              String    @id // EST-000001 (permanente; nunca se borra: RETIRADO/INACTIVO)
+  matricula       String?   // columna sin uso en los datos reales (273/273 vacía)
+  nombres         String?   // el legado permite celdas vacías en las partes del nombre
+  apellidos       String?
+  nombreCompleto  String    @map("nombre_completo")
+  sexo            String?   // sin uso en los datos reales
+  fechaNacimiento DateTime? @map("fecha_nacimiento") // sin uso en los datos reales
+  estado          String    @default("ACTIVO")
+  creado          DateTime?
+  modificado      DateTime?
+
+  enrollments  Enrollment[]
+  gradeRecords GradeRecord[]
+  results      ResultSummary[]
+  attendance   Attendance[]
+  observations Observation[]
+
+  @@unique([nombreCompleto]) // unicidad global exigida por guardarEstudiante_
+  @@map("students")
+}
+
+model Enrollment {
+  id            String  @id // INS-000001
+  schoolYearId  String  @map("school_year_id")
+  studentId     String  @map("student_id")
+  courseId      String  @map("course_id")
+  sectionId     String  @map("section_id")
+  numLista      Int     @map("num_lista")
+  estado        String  @default("ACTIVO") // ACTIVO | RETIRADO (nunca se borra)
+  creado        DateTime?
+  modificado    DateTime?
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id])
+  student    Student    @relation(fields: [studentId], references: [id])
+  course     Course     @relation(fields: [courseId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+
+  @@unique([schoolYearId, sectionId, numLista]) // sin duplicados verificados en datos reales
+  @@unique([schoolYearId, studentId]) // un estudiante se inscribe una sola vez por año (pasa de año sin duplicarse)
+  @@index([studentId])
+  @@map("enrollments")
+}
+
+model Subject {
+  id                String  @id // ASI-000001
+  codigo            String  @unique // ESP, MAT, OPT...
+  nombre            String
+  nombreReporte     String? @map("nombre_reporte")
+  abrev             String?
+  area              String  // agrupación de boletín (Lengua Española, Matemática, ...)
+  grados            String[] // lista legado CSV; "*" = todos los grados
+  orden             Int
+  ordenBoletin      Int     @map("orden_boletin") // difiere de ORDEN en los datos reales
+  usaRecuperacion   Boolean @default(true) @map("usa_recuperacion")
+  usaCompletiva     Boolean @default(true) @map("usa_completiva")
+  usaExtraordinaria Boolean @default(true) @map("usa_extraordinaria")
+  usaEspecial       Boolean @default(true) @map("usa_especial")
+  notaMinima        Int?    @map("nota_minima") // null = usa CONFIG.NOTA_MINIMA (70)
+  estado            String  @default("ACTIVO")
+  creado            DateTime?
+  modificado        DateTime?
+
+  competencies Competence[]
+  assignments  TeachingAssignment[]
+  gradeRecords GradeRecord[]
+  results      ResultSummary[]
+  attendance   Attendance[]
+  observations Observation[]
+
+  @@map("subjects")
+}
+
+// La asignatura "*" del legado (competencias generales) es subjectId = null
+model Competence {
+  id        String  @id // COM-000001
+  subjectId String? @map("subject_id")
+  codigo    String  // C1..C4
+  nombre    String
+  abrev     String? // CC, CRP, CEC, CT (abreviaturas reales de la hoja COMPETENCIAS)
+  orden     Int
+  estado    String  @default("ACTIVO")
+
+  subject Subject? @relation(fields: [subjectId], references: [id])
+
+  @@unique([subjectId, codigo])
+  // PostgreSQL considera distintos los NULL: la unicidad de las competencias
+  // GENERALES (subject_id NULL) la garantiza el índice parcial de la migración:
+  //   UNIQUE (codigo) WHERE subject_id IS NULL
+  @@map("competences")
+}
+
+model Period {
+  id           String  @id // PER-000001
+  schoolYearId String  @map("school_year_id")
+  codigo       String  // P1..P4, COMP, EXTRA, ESP
+  nombre       String
+  tipo         TipoPeriodo // REGULAR | ETAPA
+  etapa        Etapa?      // COMPLETIVA | EXTRAORDINARIA | ESPECIAL (solo TIPO=ETAPA)
+  orden        Int
+  meses        String[] @default([]) // meses incluidos en el período (CSV legado)
+  estado       String  @default("ABIERTO") // ABIERTO | CERRADO
+  creado       DateTime?
+  modificado   DateTime?
+
+  schoolYear   SchoolYear           @relation(fields: [schoolYearId], references: [id])
+  assignments  TeachingAssignment[]
+  gradeRecords GradeRecord[]
+  observations Observation[]
+
+  @@unique([schoolYearId, codigo])
+  @@map("periods")
+}
+
+enum TipoPeriodo {
+  REGULAR
+  ETAPA
+}
+
+enum Etapa {
+  COMPLETIVA
+  EXTRAORDINARIA
+  ESPECIAL
+}
+
+// ───────────────────────── Asignaciones y tutorías ─────────────────────────
+// Base de la seguridad académica: sin asignación activa, el docente no ve nada.
+
+model TeachingAssignment {
+  id           String  @id // ASG-000001
+  schoolYearId String  @map("school_year_id")
+  teacherId    String  @map("teacher_id")
+  subjectId    String  @map("subject_id")
+  courseId     String  @map("course_id")
+  sectionId    String  @map("section_id")
+  periodId     String? @map("period_id") // null = todo el año (legado "*")
+  estado       String  @default("ACTIVO")
+  creado       DateTime?
+  modificado   DateTime?
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id])
+  teacher    Teacher    @relation(fields: [teacherId], references: [id])
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+  course     Course     @relation(fields: [courseId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+  period     Period?    @relation(fields: [periodId], references: [id])
+
+  @@index([schoolYearId, teacherId])
+  @@index([schoolYearId, sectionId, subjectId])
+  // Unicidad de la asignación (año, sección, asignatura, docente, período). Prisma no
+  // expresa COALESCE en índices, así que la garantía real vive en la migración:
+  //   UNIQUE (school_year_id, section_id, subject_id, teacher_id, COALESCE(period_id,'*'))
+  @@map("teaching_assignments")
+}
+
+model TutoringAssignment {
+  id           String  @id // TUT-000001
+  schoolYearId String  @map("school_year_id")
+  teacherId    String  @map("teacher_id")
+  courseId     String  @map("course_id")
+  sectionId    String  @map("section_id")
+  estado       String  @default("ACTIVA") // ACTIVA | INACTIVA (una ACTIVA por sección/año)
+  creado       DateTime?
+  modificado   DateTime?
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id])
+  teacher    Teacher    @relation(fields: [teacherId], references: [id])
+  course     Course     @relation(fields: [courseId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+
+  // Una sola tutoría ACTIVA por sección y año. La garantía real es el índice
+  // parcial de la migración: UNIQUE (school_year_id, section_id) WHERE estado = 'ACTIVA'
+  // (el UNIQUE con `estado` impedía más de una tutoría INACTIVA histórica).
+  @@index([schoolYearId, sectionId])
+  @@map("tutoring_assignments")
+}
+
+// ───────────────────────── Calificaciones (el corazón) ─────────────────────────
+// Una fila por estudiante + asignatura + período (igual que la hoja CALIFICACIONES).
+// Notas enteras 0..100 (CONFIG.NOTA_ENTERA = SI). null = sin registrar.
+
+model GradeRecord {
+  id             String   @id // CAL-000001
+  schoolYearId   String   @map("school_year_id")
+  studentId      String   @map("student_id")
+  teacherId      String?  @map("teacher_id") // quien registró (2292/2482 vacías en datos reales)
+  subjectId      String   @map("subject_id")
+  courseId       String   @map("course_id")
+  sectionId      String   @map("section_id")
+  periodId       String   @map("period_id")
+  c1             Int?     // nota de la competencia 1 (legado C1)
+  c2             Int?
+  c3             Int?
+  c4             Int?
+  r1             Int?     // recuperación del período si la nota < mínima (legado R1)
+  r2             Int?
+  r3             Int?
+  r4             Int?
+  notaEtapa      Int?     @map("nota_etapa") // NOTA_ETAPA: completiva/extraordinaria/especial
+  creado         DateTime?
+  modificado     DateTime?
+  modificadoPor  String?  @map("modificado_por")
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id])
+  student    Student    @relation(fields: [studentId], references: [id])
+  teacher    Teacher?   @relation(fields: [teacherId], references: [id])
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+  course     Course     @relation(fields: [courseId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+  period     Period     @relation(fields: [periodId], references: [id])
+
+  // reemplazo exacto de CLAVE_GRUPO + ID_PERIODO
+  @@unique([schoolYearId, sectionId, subjectId, studentId, periodId])
+  @@index([schoolYearId, sectionId, subjectId]) // lectura por grupo (CLAVE_GRUPO)
+  @@map("grade_records")
+}
+
+// RESULTADOS: tabla derivada, recalculada por el motor (nunca se edita a mano)
+model ResultSummary {
+  id              String  @id // RES-000001
+  schoolYearId    String  @map("school_year_id")
+  studentId       String  @map("student_id")
+  subjectId       String  @map("subject_id")
+  sectionId       String  @map("section_id")
+  pc1             Float?  // promedio de competencia 1 con decimales (legado PC1)
+  pc2             Float?
+  pc3             Float?
+  pc4             Float?
+  cfReal          Float?  @map("cf_real") // C.F. real con decimales (p. ej. 53.875)
+  cf              Int?    // C.F. mostrada, entera half-up
+  cec             Int?    // nota de la etapa completiva
+  ccf             Int?    @map("ccf") // calificación final completiva: 50% CF + 50% CEC
+  ceex            Int?    // nota de la etapa extraordinaria
+  cexf            Int?    @map("cexf") // 30% CF + 70% CEEX
+  cesp            Int?    // evaluación especial (100%)
+  etapaLogro      String? @map("etapa_logro") // CF | COMPLETIVA | EXTRAORDINARIA | ESPECIAL
+  notaA           Int?    @map("nota_a") // NOTA_A: calificación final aprobada
+  notaR           Int?    @map("nota_r") // NOTA_R: última nota entera fallida (NO LOGRADO)
+  estadoResultado String  @map("estado_resultado") // valores exactos del legado:
+  //   "INCOMPLETO" | "LOGRADO" | "NO LOGRADO" | "RECUPERACIÓN PENDIENTE" | ...
+  fechaModificacion DateTime @map("fecha_modificacion")
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id])
+  student    Student    @relation(fields: [studentId], references: [id])
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+
+  // reemplazo exacto de CLAVE_GRUPO
+  @@unique([schoolYearId, sectionId, subjectId, studentId])
+  @@index([schoolYearId, sectionId, subjectId])
+  @@map("result_summaries")
+}
+
+// Asistencia rediseñada: fila por mes (la hoja usaba columnas ago..jun; sin datos).
+// Se preserva el rango de valores 0..100 y el promedio anual sobre períodos con datos.
+model Attendance {
+  id           String  @id @default(cuid())
+  schoolYearId String  @map("school_year_id")
+  studentId    String  @map("student_id")
+  subjectId    String  @map("subject_id")
+  sectionId    String  @map("section_id")
+  mes          String  // "ago".."jun" (los mismos códigos del legado)
+  porcentaje   Int     // 0..100
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id])
+  student    Student    @relation(fields: [studentId], references: [id])
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+
+  @@unique([schoolYearId, sectionId, subjectId, studentId, mes])
+  @@map("attendance")
+}
+
+model Observation {
+  id           String   @id // OBS-000001
+  schoolYearId String   @map("school_year_id")
+  studentId    String   @map("student_id")
+  courseId     String   @map("course_id")
+  sectionId    String   @map("section_id")
+  teacherId    String?  @map("teacher_id") // null si la creó un usuario no docente (dato real: admin)
+  subjectId    String?  @map("subject_id")
+  periodId     String?  @map("period_id")
+  tipo         String   // tipos cerrados del legado (5)
+  fecha        DateTime
+  observacion  String   // 3..600 caracteres (validación del legado)
+  estado       String   @default("ACTIVA") // ACTIVA | ANULADA (nunca se borra)
+  creado       DateTime?
+  modificado   DateTime?
+  creadoPor    String   @map("creado_por")
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id])
+  student    Student    @relation(fields: [studentId], references: [id])
+  course     Course     @relation(fields: [courseId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+  teacher    Teacher?   @relation(fields: [teacherId], references: [id])
+  subject    Subject?   @relation(fields: [subjectId], references: [id])
+  period     Period?    @relation(fields: [periodId], references: [id])
+
+  @@index([schoolYearId, sectionId])
+  @@map("observations")
+}
+
+// ───────────────────────── Secuencias de IDs legados ─────────────────────────
+// En el legacy el "generadorId_" leía el máximo de la hoja dentro de un bloqueo
+// global. Aquí la secuencia es atómica (INSERT … ON CONFLICT … RETURNING) y
+// reemplaza el cálculo MAX en memoria, que podía colisionar en concurrencia.
+
+model IdCounter {
+  prefijo String @id // USR, DOC, ASI, ASG, …
+  ultimo  Int    @default(0)
+
+  @@map("id_counters")
+}
+
+// ───────────────────────── Auditoría y errores ─────────────────────────
+// En el legado el HISTORIAL era bufferizado (podía perderse silenciosamente).
+// Aquí cada operación crítica escribe en la misma transacción.
+
+model AuditLog {
+  id            BigInt   @id @default(autoincrement())
+  fecha         DateTime @db.Timestamptz(0)
+  usuario       String
+  accion        String   // EDITAR_NOTA, CREAR, LOGIN, MIGRACION, ...
+  modulo        String   // CALIFICACIONES, ESTUDIANTES, AUTENTICACION, ...
+  idRegistro    String?  @map("id_registro")
+  descripcion   String?
+  valorAnterior Json?    @map("valor_anterior")
+  valorNuevo    Json?    @map("valor_nuevo")
+
+  @@index([fecha])
+  @@index([modulo, idRegistro])
+  @@map("audit_log")
+}
+
+model ErrorLog {
+  id         BigInt   @id @default(autoincrement())
+  fecha      DateTime @db.Timestamptz(0)
+  usuario    String?
+  funcion    String
+  referencia String?
+  mensaje    String
+  detalle    String?
+
+  @@map("error_log")
+}

@@ -1,0 +1,16 @@
+legacy\Code.js:5: * SEGURIDAD: google.script.run puede llamar a cualquier función pública del proyecto.
+legacy\Code.js:11:  return HtmlService.createTemplateFromFile('Index').evaluate()
+legacy\Code.js:14:    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+legacy\Code.js:17:function incluir_(nombre) { return HtmlService.createHtmlOutputFromFile(nombre).getContent(); }
+legacy\Database.js:12:  try { const a = SpreadsheetApp.getActiveSpreadsheet(); if (a) return a; } catch (e) { /* aplicación web */ }
+legacy\Database.js:15:  return SpreadsheetApp.openById(id);
+legacy\Engine.js:2: * Engine.gs — MOTOR ACADÉMICO (funciones puras, sin SpreadsheetApp)
+legacy\JavaScript.html:30:      google.script.run.withSuccessHandler(done).withFailureHandler(() => done({ ok: false, error: 'No se pudo conectar con el servidor. Verifique su conexión e inténtelo nuevamente.' }))
+legacy\JavaScript.html:71:  const r = await new Promise(res => { try { google.script.run.withSuccessHandler(res).withFailureHandler(() => res({ ok: false, error: 'No se pudo conectar con el servidor.' })).apiLogin(u, c); } catch (e) { res({ ok: false, error: 'No se pudo conectar con el servidor.' }); } });
+legacy\Setup.js:13:function aviso_(txt) { Logger.log(txt); try { SpreadsheetApp.getUi().alert(txt); } catch (e) { /* sin interfaz */ } }
+legacy\Setup.js:17:    SpreadsheetApp.getUi().createMenu('SGA')
+legacy\Setup.js:59:    const ss = SpreadsheetApp.getActiveSpreadsheet();
+legacy\Setup.js:145:  const regla = SpreadsheetApp.newDataValidation().requireNumberBetween(0, 100).setAllowInvalid(false).setHelpText('Debe introducir una calificación entre 0 y 100.').build();
+legacy\Setup.js:150:  const ss = ss_(), copia = DriveApp.getFileById(ss.getId()).makeCopy('RESPALDO_SGA_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmm'));
+legacy\Students.js:113:  const sh = SpreadsheetApp.openById(id).getSheetByName('registro');
+legacy\Tests.js:99:  try { SpreadsheetApp.getUi().alert(fallos.length ? 'HAY ' + fallos.length + ' PRUEBAS FALLIDAS\n\n' + txt : 'Todas las pruebas pasaron (' + r.length + ').\n\n' + txt); } catch (e) { /* sin UI */ }

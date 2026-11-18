@@ -1,0 +1,1214 @@
+<script>
+/* =====================================================================
+   SGC – Frontend. SOLO presenta datos y valida visualmente.
+   Todo el cálculo académico y la validación definitiva ocurren en Code.gs.
+   ===================================================================== */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const PERIODOS = ['1er Periodo', '2do Periodo', '3er Periodo', '4to Periodo'];
+/* Menú: [vista, icono, texto, permiso requerido]. Solo es presentación: el servidor vuelve a validar cada permiso. */
+const MENU = [['inicio', '🏠', 'Inicio', null], ['calif', '✏️', 'Calificaciones', 'calificaciones.ver'], ['est', '👥', 'Estudiantes', 'estudiantes.ver'], ['consulta', '🔎', 'Consulta', 'estudiantes.ver'], ['rep', '📄', 'Reportes', 'reportes.ver'], ['obs', '📝', 'Observaciones', 'observaciones.ver'],
+  ['sep', '', 'ADMINISTRACIÓN', null], ['cursos', '🏫', 'Cursos y secciones', 'cursos.ver'], ['docentes', '🧑‍🏫', 'Docentes', 'docentes.ver'], ['asignaturas', '📚', 'Asignaturas', 'asignaturas.ver'],
+  ['competencias', '🧩', 'Competencias', 'asignaturas.ver'], ['asig', '🔗', 'Asignación docente', 'asignaciones.ver'], ['tutorias', '🎓', 'Tutorías', 'tutorias.ver'], ['periodos', '🗓️', 'Períodos', 'periodos.ver'],
+  ['usuarios', '🔐', 'Usuarios', 'usuarios.ver'], ['roles', '🛡️', 'Roles y permisos', 'roles.ver'], ['hist', '🕘', 'Historial', 'historial.ver'], ['cfg', '⚙️', 'Configuración', 'configuracion.administrar']];
+const CRUDS = ['cursos', 'docentes', 'asignaturas', 'competencias', 'asignaciones', 'tutorias', 'periodos', 'usuarios'];
+
+const S = { boot: null, ano: '', view: 'inicio', curso: '', asig: '', modo: 'periodo', per: 1, grid: null, asigs: [], dirty: {}, errors: {}, filtro: '', orden: 'num', soloPend: false, nCall: 0, guardando: false, ultimoGuardado: '', token: '' };
+
+/* ---------- servidor ---------- */
+function call(fn, arg, silent) {
+  if (!silent) loading(true);
+  return new Promise(res => {
+    const done = r => {
+      if (!silent) loading(false);
+      r = r || { ok: false, error: 'Sin respuesta del servidor.' };
+      if (r.codigo === 'SESION' && S.boot) muestraLogin('Su sesión expiró. Inicie sesión de nuevo; sus datos sin guardar se conservan.');
+      res(r);
+    };
+    try {
+      google.script.run.withSuccessHandler(done).withFailureHandler(() => done({ ok: false, error: 'No se pudo conectar con el servidor. Verifique su conexión e inténtelo nuevamente.' }))
+        .apiEjecutar(fn, S.token, arg === undefined ? {} : arg);
+    } catch (e) { done({ ok: false, error: 'No se pudo conectar con el servidor.' }); }
+  });
+}
+function loading(on, txt) { S.nCall += on ? 1 : -1; if (S.nCall < 0) S.nCall = 0; $('#loadTxt').textContent = txt || 'Cargando…'; $('#loading').classList.toggle('hidden', S.nCall === 0); }
+let tt;
+function toast(msg, tipo) { const t = $('#toast'); t.textContent = msg; t.className = 'show ' + (tipo || ''); clearTimeout(tt); tt = setTimeout(() => t.className = '', 3800); }
+function modal(html) { $('#modal').innerHTML = html; $('#modalBg').classList.remove('hidden'); }
+function closeModal() { $('#modalBg').classList.add('hidden'); }
+
+/* ---------- utilidades de presentación ---------- */
+const cursoObj = () => ({ idSeccion: S.curso });
+const cursoTxt = c => c.grado + ' ' + c.seccion;
+const v0 = v => (v === null || v === undefined || v === '') ? '' : v;
+const f1 = v => (v === null || v === undefined || v === '') ? '' : Number(v).toFixed(1);           // 1 decimal (valor ya truncado por el servidor)
+const t1 = v => (v === null || v === undefined) ? '' : (Math.floor(Number(v) * 10 + 1e-9) / 10).toFixed(1);   // truncado solo para MOSTRAR
+const fn = v => { if (v === null || v === undefined || v === '') return ''; const n = Number(v); return Number.isInteger(n) ? String(n) : (Math.round(n * 10) / 10).toString(); };
+const low = v => (typeof v === 'number' && v < S.boot.config.min) ? 'low' : '';
+function chipClase(e) { e = e || ''; if (/NO LOGRADO|REPITENTE/.test(e)) return 'bad'; if (/^LOGRADO|^COMPLETADO|^PROMOVIDO/.test(e)) return 'ok'; if (/RECUPERACI/.test(e)) return 'warn'; if (/PENDIENTE/.test(e)) return 'info'; return 'mut'; }
+const chip = e => '<span class="chip ' + chipClase(e) + '">' + esc(e) + '</span>';
+const cursoSelect = (id, val) => '<label>Curso<select id="' + id + '">' + S.boot.cursos.map(c => '<option value="' + esc(c.id) + '"' + (c.id === val ? ' selected' : '') + '>' + esc(cursoTxt(c)) + '</option>').join('') + '</select></label>';
+const can = p => S.boot.permisos.includes(p);
+const esAdmin = () => can('estudiantes.editar');
+const hoy = () => new Date().toLocaleDateString('es-DO');
+function guardaSalida() { return Object.keys(S.dirty).length === 0 || confirm('Tiene cambios sin guardar. ¿Desea descartarlos?'); }
+
+/* ---------- arranque ---------- */
+async function init() {
+  try { S.token = sessionStorage.getItem('sga_tk') || ''; } catch (e) { S.token = ''; }
+  if (S.token) { const r = await call('sesion.bootstrap', undefined, true); if (r.ok) return arranca(r.data); S.token = ''; }
+  muestraLogin();
+}
+function muestraLogin(msg) {
+  $('#loading').classList.add('hidden'); $('#login').classList.remove('hidden');
+  const m = $('#lMsg'); m.textContent = msg || ''; m.classList.toggle('hidden', !msg);
+  $('#lPass').value = ''; setTimeout(() => ($('#lUser').value ? $('#lPass') : $('#lUser')).focus(), 50);
+}
+async function entrar() {
+  const u = $('#lUser').value, c = $('#lPass').value; if (!u || !c) return;
+  $('#lGo').disabled = true;
+  const r = await new Promise(res => { try { google.script.run.withSuccessHandler(res).withFailureHandler(() => res({ ok: false, error: 'No se pudo conectar con el servidor.' })).apiLogin(u, c); } catch (e) { res({ ok: false, error: 'No se pudo conectar con el servidor.' }); } });
+  $('#lGo').disabled = false;
+  if (!r.ok) { muestraLogin(r.error); return; }
+  S.token = r.data.token; try { sessionStorage.setItem('sga_tk', S.token); } catch (e) { /* sin almacenamiento */ }
+  $('#login').classList.add('hidden');
+  if (S.boot && S.boot.usuario.usuario === r.data.boot.usuario.usuario) { toast('Sesión renovada. Ya puede guardar de nuevo.', 'ok'); if (r.data.boot.usuario.debeCambiar) modalClave(true); return; }
+  S.dirty = {}; arranca(r.data.boot);
+}
+async function salir() {
+  if (!guardaSalida()) return;
+  await call('sesion.cerrar', undefined, true);
+  try { sessionStorage.removeItem('sga_tk'); } catch (e) { /* */ }
+  location.reload();
+}
+let _eventos = false;
+function arranca(boot) {
+  S.boot = boot; S.ano = boot.config.ano;
+  S.curso = boot.cursos.length ? boot.cursos[0].id : '';
+  $('#loading').classList.add('hidden'); $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  $('.brand').title = boot.app; $('.brand').setAttribute('aria-label', boot.app);   // la marca ahora es el logo (CSS); aquí solo se mantiene el nombre accesible
+  $('#anoSel').innerHTML = boot.anos.map(a => '<option' + (a === S.ano ? ' selected' : '') + '>' + esc(a) + '</option>').join('');
+  $('#anoSel').onchange = async e => { if (!guardaSalida()) { e.target.value = S.ano; return; } S.ano = e.target.value; S.dirty = {}; await recargaCursos(); go(S.view); };
+  $('#userBox').innerHTML = esc(boot.usuario.nombre) + '<br><b>' + esc(boot.usuario.rol) + '</b> <a id="uPass">PIN</a> · <a id="uOut">Salir</a>';
+  $('#uPass').onclick = () => modalClave(false); $('#uOut').onclick = salir;
+  const hayAdmin = MENU.some(n => n[0] !== 'sep' && n[0] !== 'inicio' && !['calif', 'est', 'consulta', 'rep', 'obs'].includes(n[0]) && (!n[3] || can(n[3])));
+  $('#nav').innerHTML = MENU.filter(n => n[0] === 'sep' ? hayAdmin : (!n[3] || can(n[3]))).map(n => n[0] === 'sep' ? '<div class="sep">' + n[2] + '</div>' : '<button data-v="' + n[0] + '"><span>' + n[1] + '</span>' + n[2] + '</button>').join('');
+  $('#nav').onclick = e => { const b = e.target.closest('button'); if (b) { go(b.dataset.v); $('#nav').classList.remove('open'); } };
+  $('#menuBtn').onclick = () => $('#nav').classList.toggle('open');
+  if (!_eventos) {
+    _eventos = true;
+    window.addEventListener('beforeunload', e => { if (Object.keys(S.dirty).length) { e.preventDefault(); e.returnValue = ''; } });
+    document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && S.view === 'calif') { e.preventDefault(); guardar(); } });
+  }
+  S.view = 'inicio';
+  if (boot.usuario.debeCambiar) { modalClave(true); return; }
+  go('inicio');
+}
+async function recargaCursos() {
+  const r = await call('cursos.listarLigero', { ano: S.ano });
+  S.boot.cursos = r.ok ? r.data : [];
+  if (!S.boot.cursos.some(c => c.id === S.curso)) S.curso = S.boot.cursos.length ? S.boot.cursos[0].id : '';
+}
+function modalClave(obligatorio) {
+  modal('<h3>Cambiar mi PIN</h3><label>PIN actual</label><input type="password" id="pA" inputmode="numeric" maxlength="4" autocomplete="current-password"><label>PIN nuevo (4 dígitos)</label><input type="password" id="pN" inputmode="numeric" maxlength="4" autocomplete="new-password"><label>Repita el PIN nuevo</label><input type="password" id="pR" inputmode="numeric" maxlength="4" autocomplete="new-password">' +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="pOk">Guardar</button></div>');
+  $('#pOk').onclick = async () => {
+    if ($('#pN').value !== $('#pR').value) return toast('Los PIN nuevos no coinciden.', 'bad');
+    const r = await call('sesion.cambiarClave', { actual: $('#pA').value, nueva: $('#pN').value });
+    if (!r.ok) return toast(r.error, 'bad');
+    closeModal(); toast('PIN actualizado.', 'ok');
+  };
+}
+function go(v) {
+  if (v !== S.view && !guardaSalida()) return;
+  if (v !== S.view) S.dirty = {};
+  S.view = v; S.errors = {};
+  $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  if (CRUDS.includes(v)) vCrud(v); else ({ inicio: vInicio, calif: vCalif, est: vEst, consulta: vConsulta, rep: vRep, cfg: vCfg, roles: vRoles, hist: vHist, asig: vAsig, obs: vObs })[v]();
+  window.scrollTo(0, 0);
+}
+function sinCursos() { $('#main').innerHTML = '<div class="card empty">No tiene cursos disponibles en este año escolar. El administrador puede crearlos en Administración > Cursos y secciones, y asignarle docentes.</div>'; }
+
+/* =====================================================================
+   INICIO (dashboard)
+   ===================================================================== */
+async function vInicio() {
+  if (!S.curso) return sinCursos();
+  $('#main').innerHTML = '<h2>Inicio</h2><div class="bar">' + cursoSelect('dCurso', S.curso) +
+    '<label>Período a analizar<div class="seg" id="dPer">' + [1, 2, 3, 4].map(p => '<button data-p="' + p + '"' + (p === S.per ? ' class="on"' : '') + '>P' + p + '</button>').join('') + '</div></label></div><div id="dBody"></div>';
+  $('#dCurso').onchange = e => { S.curso = e.target.value; cargaDash(); };
+  $('#dPer').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.per = +b.dataset.p; $$('#dPer button').forEach(x => x.classList.toggle('on', x === b)); cargaDash(); };
+  cargaDash();
+}
+async function cargaDash() {
+  const c = cursoObj();
+  const r = await call('reportes.dashboard', { ano: S.ano, idSeccion: c.idSeccion, periodo: S.per });
+  if (S.view !== 'inicio') return;
+  const el = $('#dBody');
+  if (!r.ok) { el.innerHTML = '<div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  const d = r.data, min = d.min;
+  const pc = d.porcentajeAprobando === null ? '–' : Math.round(d.porcentajeAprobando * 100) + '%';
+  const maxDist = Math.max(1, ...d.distribucion);
+  const rangos = ['Menos de ' + min, min + ' – 79', '80 – 89', '90 – 100'];
+  el.innerHTML = '<div class="kpis">' +
+    kpi(d.totalEstudiantes, 'Estudiantes') + kpi(d.promedioGeneral === null ? '–' : t1(d.promedioGeneral), 'Promedio general P' + d.periodo) +
+    kpi(pc, '% con promedio ≥ ' + min, 'ok') + kpi(d.enRiesgo.length, 'En riesgo (alguna asignatura < ' + min + ')', d.enRiesgo.length ? 'bad' : '') +
+    kpi(d.estudiantesPendientes, 'Con calificaciones pendientes', d.estudiantesPendientes ? 'warn' : '') + kpi(d.estudiantesEnRecuperacion, 'Con recuperación pendiente', d.estudiantesEnRecuperacion ? 'warn' : '') +
+    '</div><div class="kpis">' + kpi(d.estudiantesCompletiva, 'En completiva') + kpi(d.estudiantesExtraordinaria, 'En extraordinaria') + kpi(d.estudiantesEspecial, 'En evaluación especial') +
+    kpi(d.situacion.PROMOVIDO, 'Promovidos', 'ok') + kpi(d.situacion.REPITENTE, 'Repitentes', d.situacion.REPITENTE ? 'bad' : '') + '</div>' +
+    '<div class="card"><h3 style="margin-top:0">Promedio por asignatura y período</h3><div class="tw" style="max-height:none"><table class="t"><thead><tr><th class="l">Asignatura</th>' + [1, 2, 3, 4].map(p => '<th>P' + p + '</th>').join('') + '</tr></thead><tbody>' +
+    d.porAsignatura.map(a => '<tr><td class="l">' + esc(a.nombre) + '</td>' + a.periodos.map(v => '<td class="' + low(v) + '">' + (v === null ? '' : t1(v)) + '</td>').join('') + '</tr>').join('') +
+    '</tbody></table></div></div>' +
+    '<div class="two"><div class="card bars"><h3 style="margin-top:0">Distribución de promedios (P' + d.periodo + ')</h3>' +
+    d.distribucion.map((n, i) => '<div class="row"><span class="lb">' + rangos[i] + '</span><div class="bg"><div class="fg" style="width:' + (n / maxDist * 100) + '%;' + (i === 0 ? 'background:var(--bad)' : '') + '"></div></div><b>' + n + '</b></div>').join('') + '</div>' +
+    '<div class="card"><h3 style="margin-top:0">Cuadro de honor (Top 5)</h3>' + (d.mejor.length ? '<ul class="list">' + d.mejor.map((m, i) => '<li><span>' + (i + 1) + '. ' + esc(m.nombre) + '</span><b>' + t1(m.promedio) + '</b></li>').join('') + '</ul>' : '<div class="empty">Sin datos todavía</div>') + '</div></div>' +
+    '<div class="card"><h3 style="margin-top:0">Estudiantes en riesgo (P' + d.periodo + ')</h3>' + (d.enRiesgo.length ? '<ul class="list">' + d.enRiesgo.map(m => '<li><span>' + esc(m.nombre) + '</span><span style="color:var(--bad);text-align:right">' + esc(m.riesgo.join(', ')) + '</span></li>').join('') + '</ul>' : '<div class="empty">Ningún estudiante en riesgo en este período 🎉</div>') + '</div>';
+}
+const kpi = (v, l, c) => '<div class="kpi ' + (c || '') + '"><b>' + esc(v) + '</b><span>' + esc(l) + '</span></div>';
+
+/* =====================================================================
+   CALIFICACIONES
+   ===================================================================== */
+async function vCalif() {
+  if (!S.curso) return sinCursos();
+  $('#main').innerHTML = '<h2>Calificaciones</h2><div class="card no-print"><div class="bar">' + cursoSelect('cCurso', S.curso) +
+    '<label>Asignatura<select id="cAsig"></select></label>' +
+    '<label>Vista<div class="seg" id="cModo"><button data-m="periodo">Períodos</button><button data-m="final">Resultados y evaluaciones finales</button><button data-m="asist">Asistencia</button></div></label>' +
+    '<label id="cPerBox">Período<div class="seg" id="cPer">' + [1, 2, 3, 4].map(p => '<button data-p="' + p + '">P' + p + '</button>').join('') + '</div></label></div>' +
+    '<div class="bar"><label>Buscar estudiante<input type="search" id="cBuscar" placeholder="Nombre…"></label>' +
+    '<label>Filtro<select id="cFiltro"><option value="">Todos</option><option value="pend">Con RP pendiente / incompletos</option></select></label>' +
+    '<label>Orden<select id="cOrden"><option value="num">Número de lista</option><option value="nom">Nombre (A-Z)</option></select></label>' +
+    '<div class="grow"></div><span class="status" id="cStatus"></span><button class="btn ok" id="cGuardar" disabled>Guardar (Ctrl+S)</button></div></div>' +
+    '<div id="cGrid"></div><div class="status no-print" style="margin-top:8px">Atajos: <b>Enter</b>/<b>↓</b> baja · <b>Shift+Enter</b>/<b>↑</b> sube · <b>Tab</b> avanza · <b>Ctrl+S</b> guarda. La RP se habilita sola cuando la nota es menor de ' + S.boot.config.min + '.</div>';
+  $('#cCurso').onchange = async e => { if (!guardaSalida()) { e.target.value = S.curso; return; } S.curso = e.target.value; S.dirty = {}; S.asig = ''; await cargaAsigs(); };
+  $('#cAsig').onchange = e => { if (!guardaSalida()) { e.target.value = S.asig; return; } S.asig = e.target.value; S.dirty = {}; cargaGrid(); };
+  $('#cModo').onclick = e => { const b = e.target.closest('button'); if (!b || b.dataset.m === S.modo) return; if (!guardaSalida()) return; S.modo = b.dataset.m; S.dirty = {}; marcaModo(); cargaGrid(); };
+  $('#cPer').onclick = e => { const b = e.target.closest('button'); if (!b) return; if (!guardaSalida()) return; S.per = +b.dataset.p; S.dirty = {}; marcaModo(); pintaGrid(); };
+  $('#cBuscar').oninput = e => { S.filtro = e.target.value; pintaGrid(); };
+  $('#cFiltro').onchange = e => { S.soloPend = e.target.value === 'pend'; pintaGrid(); };
+  $('#cOrden').onchange = e => { S.orden = e.target.value; pintaGrid(); };
+  $('#cGuardar').onclick = guardar;
+  marcaModo();
+  await cargaAsigs();
+}
+function marcaModo() {
+  $$('#cModo button').forEach(b => b.classList.toggle('on', b.dataset.m === S.modo));
+  $$('#cPer button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.per));
+  $('#cPerBox').classList.toggle('hidden', S.modo !== 'periodo');
+}
+async function cargaAsigs() {
+  const c = cursoObj();
+  const r = await call('cursos.asignaturas', { ano: S.ano, idSeccion: c.idSeccion });
+  if (!r.ok) { $('#cGrid').innerHTML = '<div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  S.asigs = r.data;
+  if (!S.asigs.some(a => a.id === S.asig)) { const first = S.asigs.find(a => a.puedeEditar) || S.asigs[0]; S.asig = first ? first.id : ''; }
+  $('#cAsig').innerHTML = S.asigs.map(a => '<option value="' + esc(a.id) + '"' + (a.id === S.asig ? ' selected' : '') + '>' + esc(a.nombre) + (a.puedeEditar ? '' : ' 🔒') + '</option>').join('');
+  cargaGrid();
+}
+async function cargaGrid(conservar) {
+  if (!S.asig) { $('#cGrid').innerHTML = '<div class="card empty">Este curso no tiene asignaturas disponibles.</div>'; return; }
+  const c = cursoObj();
+  const p = { ano: S.ano, idSeccion: c.idSeccion, idAsignatura: S.asig };
+  const r = await call(S.modo === 'asist' ? 'asistencia.obtener' : 'calificaciones.grid', p);
+  if (S.view !== 'calif') return;
+  if (!r.ok) { $('#cGrid').innerHTML = '<div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  S.grid = r.data;
+  if (!conservar) S.errors = {};
+  pintaGrid();
+}
+function filasVisibles() {
+  const g = S.grid; if (!g) return [];
+  let f = g.estudiantes.slice();
+  const q = S.filtro.trim().toLowerCase();
+  if (q) f = f.filter(e => e.nombre.toLowerCase().includes(q));
+  if (S.soloPend && S.modo !== 'asist') f = f.filter(e => { const c = e.calc; return S.modo === 'periodo' ? c.periodos[S.per - 1].estado !== 'COMPLETADO' : !/^LOGRADO|NO LOGRADO/.test(c.estado); });
+  if (S.orden === 'nom') f.sort((a, b) => a.nombre.localeCompare(b.nombre)); else f.sort((a, b) => a.num - b.num);
+  return f;
+}
+const dv = (id, k) => (S.dirty[id] && k in S.dirty[id]) ? S.dirty[id][k] : null;
+function valor(e, k) { const d = dv(e.idEstudiante, k); if (d !== null) return d; const src = S.modo === 'asist' ? e.meses : e.notas; const v = src[k]; return v === null || v === undefined ? '' : v; }
+
+function pintaGrid() {
+  const g = S.grid; if (!g) return;
+  const box = $('#cGrid');
+  const rows = filasVisibles();
+  let aviso = '';
+  if (!g.puedeEditar) aviso = '<div class="msg info no-print">Solo lectura: no tiene permiso para modificar ' + esc(g.asignatura.nombre) + ' en este curso.</div>';
+  else if (g.docente) aviso = '';
+  if (S.modo === 'periodo' && g.cerrados && g.cerrados[S.per]) aviso += '<div class="msg info no-print">El período P' + S.per + ' está cerrado: solo lectura.</div>';
+  const info = '<div class="status" style="margin-bottom:6px"><b>' + esc(g.asignatura.nombre) + '</b>' + (g.docente ? ' · Docente: ' + esc(g.docente) : '') + ' · ' + g.estudiantes.length + ' estudiantes</div>';
+  if (!rows.length) { box.innerHTML = aviso + info + '<div class="card empty">No hay estudiantes para mostrar.</div>'; return actualizaEstado(); }
+  let html;
+  if (S.modo === 'periodo') html = tablaPeriodo(g, rows);
+  else if (S.modo === 'final') html = tablaFinal(g, rows);
+  else html = tablaAsist(g, rows);
+  box.innerHTML = aviso + info + '<div class="tw">' + html + '</div>';
+  validaTodo();
+  actualizaEstado();
+}
+function inp(e, k, col, dis, extra) {
+  return '<input class="nota ' + (extra || '') + '" data-id="' + esc(e.idEstudiante) + '" data-k="' + k + '" data-c="' + col + '" inputmode="numeric" autocomplete="off" maxlength="5" value="' + esc(valor(e, k)) + '"' + (dis ? ' disabled' : '') + '>';
+}
+function tablaPeriodo(g, rows) {
+  const p = S.per, min = g.params.min, ed = g.puedeEditar && !(g.cerrados && g.cerrados[S.per]);
+  let h = '<table class="t"><thead><tr><th rowspan="2" class="sticky1">No.</th><th rowspan="2" class="l sticky2">Estudiante</th>' +
+    g.competencias.map((c, i) => '<th colspan="2" class="c' + (i + 1) + '" title="' + esc(c.nombre) + '">' + esc(c.abrev) + '</th>').join('') + '<th rowspan="2">Prom. P' + p + '</th><th rowspan="2">Estado</th></tr><tr>' +
+    g.competencias.map((c, i) => '<th class="c' + (i + 1) + '">P' + p + '</th><th class="c' + (i + 1) + '">RP' + p + '</th>').join('') + '</tr></thead><tbody>';
+  rows.forEach(e => {
+    const per = e.calc.periodos[p - 1], sucio = !!S.dirty[e.idEstudiante];
+    h += '<tr data-id="' + esc(e.idEstudiante) + '"><td class="sticky1">' + e.num + '</td><td class="nm sticky2" title="' + esc(e.nombre) + '">' + esc(e.nombre) + '</td>';
+    g.competencias.forEach((c, i) => {
+      const kp = 'P' + p + 'C' + (i + 1), kr = 'R' + p + 'C' + (i + 1);
+      const pv = parseFloat(String(valor(e, kp)).replace(',', '.'));
+      const rpOk = g.params.usaRec && !isNaN(pv) && pv < min;
+      h += '<td>' + inp(e, kp, i * 2, !ed, !isNaN(pv) && pv < min ? 'low' : '') + '</td><td>' + inp(e, kr, i * 2 + 1, !ed || !rpOk) + '</td>';
+    });
+    h += '<td class="pr">' + (per.promedio === null ? '' : t1(per.promedio)) + '</td><td class="es">' + (sucio ? '<span class="chip warn">● Sin guardar</span>' : chip(per.estado)) + '</td></tr>';
+  });
+  return h + '</tbody></table>';
+}
+function tablaFinal(g, rows) {
+  const ed = g.puedeEditar;
+  let h = '<table class="t"><thead><tr><th rowspan="2" class="sticky1">No.</th><th rowspan="2" class="l sticky2">Estudiante</th><th colspan="4">Promedio grupo de competencias (PC)</th><th rowspan="2">C.F.</th><th colspan="2">Completiva</th><th colspan="2">Extraordinaria</th><th>Especial</th><th rowspan="2">A</th><th rowspan="2">R</th><th rowspan="2">Estado</th></tr><tr>' +
+    g.competencias.map((c, i) => '<th class="c' + (i + 1) + '" title="' + esc(c.nombre) + '">PC' + (i + 1) + '</th>').join('') + '<th>C.E.C.</th><th>C.C.F.</th><th>C.E.EX</th><th>C.EX.F.</th><th>C.E.</th></tr></thead><tbody>';
+  rows.forEach(e => {
+    const c = e.calc, sucio = !!S.dirty[e.idEstudiante];
+    const marca = c.etapa && c.etapa !== 'CF' ? ' ✓' : '';
+    h += '<tr data-id="' + esc(e.idEstudiante) + '"><td class="sticky1">' + e.num + '</td><td class="nm sticky2" title="' + esc(e.nombre) + '">' + esc(e.nombre) + '</td>' +
+      c.pcMostrar.map(v => '<td class="' + low(v) + '">' + f1(v) + '</td>').join('') + '<td class="' + low(c.cf) + '"><b>' + v0(c.cf) + '</b></td>' +
+      '<td>' + inp(e, 'CEC', 0, !ed || !c.comp.habilitada || (g.cerrados && g.cerrados.CEC)) + '</td><td class="' + low(c.comp.ccf) + '">' + v0(c.comp.ccf) + '</td>' +
+      '<td>' + inp(e, 'CEEX', 1, !ed || !c.ext.habilitada || (g.cerrados && g.cerrados.CEEX)) + '</td><td class="' + low(c.ext.cexf) + '">' + v0(c.ext.cexf) + '</td>' +
+      '<td>' + inp(e, 'CESP', 2, !ed || !c.esp.habilitada || (g.cerrados && g.cerrados.CESP)) + '</td>' +
+      '<td><b>' + (c.A === null ? '' : c.A + marca) + '</b></td><td class="low">' + v0(c.R) + '</td><td class="es">' + (sucio ? '<span class="chip warn">● Sin guardar</span>' : chip(c.estado)) + '</td></tr>';
+  });
+  return h + '</tbody></table>';
+}
+function tablaAsist(g, rows) {
+  const ed = g.puedeEditar;
+  const perDe = {}; (g.periodos || []).forEach(p => p.meses.forEach(m => { perDe[m] = p.codigo; }));            // mes -> período (viene de PERIODOS.MESES)
+  const grupos = []; g.meses.forEach(m => { const c = perDe[m] || '', u = grupos[grupos.length - 1]; if (u && u.c === c) u.n++; else grupos.push({ c: c, n: 1 }); });
+  let h = '<table class="t"><thead><tr><th class="sticky1" rowspan="2">No.</th><th class="l sticky2" rowspan="2">Estudiante</th>' + grupos.map(x => '<th colspan="' + x.n + '">' + esc(x.c) + '</th>').join('') + '<th rowspan="2">Prom.</th></tr><tr>' + g.meses.map(m => '<th>' + m + '</th>').join('') + '</tr></thead><tbody>';
+  rows.forEach(e => {
+    const vals = g.meses.map(m => valor(e, m)).map(x => parseFloat(x)).filter(x => !isNaN(x));
+    h += '<tr data-id="' + esc(e.idEstudiante) + '"><td class="sticky1">' + e.num + '</td><td class="nm sticky2" title="' + esc(e.nombre) + '">' + esc(e.nombre) + '</td>' +
+      g.meses.map((m, i) => '<td>' + inp(e, m, i, !ed) + '</td>').join('') + '<td class="pr">' + (vals.length ? t1(vals.reduce((a, b) => a + b, 0) / vals.length) : '') + '</td></tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+/* ---- validación visual inmediata (la definitiva la hace el servidor) ---- */
+function mensajeCelda(el) {
+  const k = el.dataset.k, id = el.dataset.id, raw = el.value.trim().replace(',', '.');
+  if (raw === '') return '';
+  const cfg = S.boot.config, g = S.grid;
+  const n = Number(raw);
+  const rango = S.modo === 'asist' ? 'Debe introducir un porcentaje entre 0 y 100.' : 'Debe introducir una calificación entre 0 y ' + cfg.max + '.';
+  if (!/^\d+(\.\d+)?$/.test(raw) || isNaN(n) || n < 0 || n > cfg.max) return rango;
+  if (cfg.entera && S.modo !== 'asist' && !Number.isInteger(n)) return 'La calificación debe ser un número entero.';
+  const m = /^R(\d)C(\d)$/.exec(k);
+  if (m && S.modo === 'periodo') {
+    const e = g.estudiantes.find(x => x.idEstudiante === id), pv = parseFloat(String(valor(e, 'P' + m[1] + 'C' + m[2])).replace(',', '.'));
+    if (isNaN(pv)) return 'Registre primero la nota original.';
+    if (n < pv) return 'La recuperación no puede ser menor que la nota original (' + pv + ').';
+  }
+  return '';
+}
+function validaTodo() {
+  $$('#cGrid input.nota').forEach(el => {
+    const m = mensajeCelda(el), srv = S.errors[el.dataset.id + '|' + el.dataset.k];
+    el.classList.toggle('bad', !!(m || srv)); el.title = m || srv || '';
+    const k = el.dataset.k, e = S.grid.estudiantes.find(x => x.idEstudiante === el.dataset.id);
+    const guardada = S.modo === 'asist' ? e.meses[k] : e.notas[k];
+    el.classList.toggle('dirty', !!S.dirty[el.dataset.id] && k in S.dirty[el.dataset.id] && norm(el.value) !== norm(guardada));
+    if (/^P\dC\d$/.test(k)) { const x = parseFloat(el.value.replace(',', '.')); el.classList.toggle('low', !isNaN(x) && x < S.boot.config.min); }
+  });
+}
+const norm = v => (v === null || v === undefined) ? '' : String(v).trim().replace(',', '.');
+
+$('#main').addEventListener('input', ev => {
+  const el = ev.target; if (!el.matches || !el.matches('input.nota')) return;
+  const id = el.dataset.id, k = el.dataset.k, g = S.grid, e = g.estudiantes.find(x => x.idEstudiante === id);
+  const guardada = S.modo === 'asist' ? e.meses[k] : e.notas[k];
+  const setDirty = (kk, val, base) => { S.dirty[id] = S.dirty[id] || {}; if (norm(val) === norm(base)) delete S.dirty[id][kk]; else S.dirty[id][kk] = val.trim(); if (!Object.keys(S.dirty[id]).length) delete S.dirty[id]; };
+  setDirty(k, el.value, guardada);
+  delete S.errors[id + '|' + k];
+  // La RP depende de P: se habilita/deshabilita sola
+  const m = /^P(\d)C(\d)$/.exec(k);
+  if (m && S.modo === 'periodo') {
+    const rk = 'R' + m[1] + 'C' + m[2], rel = $('input[data-id="' + id + '"][data-k="' + rk + '"]');
+    const pv = parseFloat(el.value.replace(',', '.')), ok = g.puedeEditar && g.params.usaRec && !isNaN(pv) && pv < S.boot.config.min && !mensajeCelda(el);
+    if (rel) { rel.disabled = !ok; if (!ok && rel.value !== '') { rel.value = ''; setDirty(rk, '', e.notas[rk]); } }
+  }
+  validaTodo();
+  const tr = el.closest('tr'); const es = tr && tr.querySelector('td.es'); if (es) es.innerHTML = S.dirty[id] ? '<span class="chip warn">● Sin guardar</span>' : chip(S.modo === 'periodo' ? e.calc.periodos[S.per - 1].estado : e.calc.estado);
+  actualizaEstado();
+});
+$('#main').addEventListener('keydown', ev => {
+  const el = ev.target; if (!el.matches || !el.matches('input.nota')) return;
+  const k = ev.key; if (!['Enter', 'ArrowDown', 'ArrowUp'].includes(k)) return;
+  ev.preventDefault();
+  const up = k === 'ArrowUp' || (k === 'Enter' && ev.shiftKey);
+  const col = $$('#cGrid input.nota[data-c="' + el.dataset.c + '"]:not([disabled])'), i = col.indexOf(el);
+  let nx = col[i + (up ? -1 : 1)];
+  if (!nx && !up) { const cols = [...new Set($$('#cGrid input.nota:not([disabled])').map(x => +x.dataset.c))].sort((a, b) => a - b); const sig = cols.find(c => c > +el.dataset.c); if (sig !== undefined) nx = $('#cGrid input.nota[data-c="' + sig + '"]:not([disabled])'); }
+  if (nx) { nx.focus(); nx.select(); }
+});
+$('#main').addEventListener('focusin', ev => { if (ev.target.matches && ev.target.matches('input.nota')) ev.target.select(); });
+
+function actualizaEstado() {
+  const n = Object.values(S.dirty).reduce((a, o) => a + Object.keys(o).length, 0);
+  const st = $('#cStatus'), bt = $('#cGuardar'); if (!st) return;
+  const hayMalas = $$('#cGrid input.nota.bad').length > 0;
+  if (S.guardando) { st.className = 'status'; st.textContent = 'Guardando…'; bt.disabled = true; return; }
+  if (n) { st.className = 'status dirty'; st.textContent = '● ' + n + ' cambio(s) sin guardar' + (hayMalas ? ' · corrija las celdas en rojo' : ''); }
+  else { st.className = 'status' + (S.ultimoGuardado ? ' saved' : ''); st.textContent = S.ultimoGuardado ? '✔ Guardado ' + S.ultimoGuardado : ''; }
+  bt.disabled = !n || !S.grid || !S.grid.puedeEditar;
+}
+async function guardar() {
+  if (S.guardando || !S.grid) return;
+  const filas = Object.entries(S.dirty).map(([id, cambios]) => ({ idEstudiante: id, cambios }));
+  if (!filas.length) return;
+  if ($$('#cGrid input.nota.bad').length) { toast('Corrija las celdas marcadas en rojo antes de guardar.', 'bad'); return; }
+  S.guardando = true; actualizaEstado();
+  const c = cursoObj();
+  const r = await call(S.modo === 'asist' ? 'asistencia.guardar' : 'calificaciones.guardar', { ano: S.ano, idSeccion: c.idSeccion, idAsignatura: S.asig, filas }, true);
+  S.guardando = false;
+  if (!r.ok) { toast(r.error, 'bad'); actualizaEstado(); const st = $('#cStatus'); if (st) { st.className = 'status err'; st.textContent = 'No se pudo guardar. Sus datos siguen en pantalla.'; } return; }
+  const errIds = new Set(r.data.errores.map(x => x.idEstudiante));
+  r.data.errores.forEach(x => { S.errors[x.idEstudiante + '|' + x.campo] = x.mensaje; });
+  filas.forEach(f => { if (!errIds.has(f.idEstudiante)) delete S.dirty[f.idEstudiante]; });
+  S.ultimoGuardado = new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' });
+  await cargaGrid(true);
+  if (r.data.errores.length) { toast(r.data.guardados + ' fila(s) guardadas. ' + r.data.errores.length + ' rechazada(s): ' + r.data.errores[0].mensaje, 'bad'); }
+  else toast(r.data.guardados + ' fila(s) guardada(s) correctamente.', 'ok');
+}
+
+/* =====================================================================
+   ESTUDIANTES
+   ===================================================================== */
+async function vEst() {
+  if (!S.curso) { $('#main').innerHTML = '<h2>Estudiantes</h2>' + (can('cursos.crear') ? '<button class="btn" onclick="modalCurso()">Nuevo curso</button>' : '') + '<div class="card empty">No hay cursos configurados.</div>'; return; }
+  $('#main').innerHTML = '<h2>Estudiantes</h2><div class="bar">' + cursoSelect('eCurso', S.curso) + '<div class="grow"></div>' +
+    (can('estudiantes.crear') ? '<button class="btn" id="eNuevo">+ Agregar estudiante</button><button class="btn sec" id="eImp">Importar lista</button>' : '') + (can('configuracion.administrar') ? '<button class="btn sec" id="eSync">Sincronizar con REGISTRO</button>' : '') + (can('cursos.crear') ? '<button class="btn sec" id="eCurs">Nuevo curso</button>' : '') +
+    '</div><div id="eBody"></div>';
+  $('#eCurso').onchange = e => { S.curso = e.target.value; cargaEst(); };
+  if ($('#eNuevo')) { $('#eNuevo').onclick = () => modalEst(); $('#eImp').onclick = modalImp; } if ($('#eSync')) $('#eSync').onclick = sincroniza; if ($('#eCurs')) $('#eCurs').onclick = modalCurso;
+  cargaEst();
+}
+async function cargaEst() {
+  const c = cursoObj();
+  const r = await call('estudiantes.listar', { ano: S.ano, idSeccion: c.idSeccion });
+  if (S.view !== 'est') return;
+  if (!r.ok) { $('#eBody').innerHTML = '<div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  S.listaEst = r.data;
+  $('#eBody').innerHTML = r.data.length ? '<div class="tw"><table class="t"><thead><tr><th>No.</th><th class="l">Nombre</th><th>Matrícula</th><th>Estado</th>' + (esAdmin() ? '<th>Acciones</th>' : '') + '</tr></thead><tbody>' +
+    r.data.map((e, i) => '<tr><td>' + e.num + '</td><td class="l">' + esc(e.nombre) + '</td><td>' + esc(e.matricula || '') + '</td><td>' + chip(e.activo ? 'ACTIVO' : 'RETIRADO').replace('mut', e.activo ? 'ok' : 'bad') + '</td>' +
+      (esAdmin() ? '<td><button class="btn sec" onclick="modalEst(' + i + ')">Editar</button> <button class="btn sec" onclick="cambiaEstado(' + i + ')">' + (e.activo ? 'Retirar' : 'Reactivar') + '</button></td>' : '') + '</tr>').join('') + '</tbody></table></div>' :
+    '<div class="card empty">Este curso no tiene estudiantes en ' + esc(S.ano) + '. Use "Importar lista" para pegar los nombres.</div>';
+}
+function modalEst(i) {
+  const e = i === undefined ? null : S.listaEst[i];
+  modal('<h3>' + (e ? 'Editar estudiante' : 'Agregar estudiante') + '</h3><label>Nombre completo</label><input id="mNombre" value="' + esc(e ? e.nombre : '') + '"><label>Matrícula (opcional)</label><input id="mMat" value="' + esc(e ? e.matricula || '' : '') + '">' +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="mOk">Guardar</button></div>');
+  $('#mOk').onclick = async () => {
+    const c = cursoObj();
+    const r = await call('estudiantes.guardar', { ano: S.ano, idSeccion: c.idSeccion, idEstudiante: e ? e.idEstudiante : '', nombre: $('#mNombre').value, matricula: $('#mMat').value });
+    if (!r.ok) { toast(r.error, 'bad'); return; } closeModal(); toast('Estudiante guardado.', 'ok'); cargaEst();
+  };
+}
+async function cambiaEstado(i) {
+  const e = S.listaEst[i];
+  if (!confirm((e.activo ? 'Retirar a ' : 'Reactivar a ') + e.nombre + '? Sus calificaciones se conservan.')) return;
+  const r = await call('estudiantes.estado', { ano: S.ano, idEstudiante: e.idEstudiante, activo: !e.activo });
+  if (!r.ok) return toast(r.error, 'bad'); cargaEst();
+}
+function modalImp() {
+  modal('<h3>Importar lista de estudiantes</h3><p class="status">Pegue un nombre por línea (puede incluir numeración). Se omiten los nombres que ya existen en el curso.</p><textarea id="mTxt" rows="10"></textarea>' +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="mOk">Importar</button></div>');
+  $('#mOk').onclick = async () => {
+    const c = cursoObj();
+    const r = await call('estudiantes.importar', { ano: S.ano, idSeccion: c.idSeccion, texto: $('#mTxt').value });
+    if (!r.ok) return toast(r.error, 'bad'); closeModal(); toast(r.data.creados + ' creados, ' + r.data.omitidos.length + ' ya existían.', 'ok'); cargaEst();
+  };
+}
+async function sincroniza() {
+  if (!confirm('Se leerá la lista de la hoja "registro" del libro configurado y se agregarán los estudiantes nuevos. No se elimina ni modifica nada. ¿Continuar?')) return;
+  const c = cursoObj();
+  const r = await call('estudiantes.sincronizar', { ano: S.ano, idSeccion: c.idSeccion });
+  if (!r.ok) return toast(r.error, 'bad');
+  toast(r.data.nuevos + ' nuevo(s). ' + (r.data.noEstanEnRegistro.length ? r.data.noEstanEnRegistro.length + ' no aparecen en el registro (revíselos).' : ''), 'ok'); cargaEst();
+}
+async function modalCurso() {
+  const dd = await call('crud.opciones', { ref: 'docentes' }), docs = dd.ok ? dd.data : [];
+  modal('<h3>Nuevo curso / sección (' + esc(S.ano) + ')</h3><label>Grado</label><select id="mG">' + S.boot.grados.map(g => '<option>' + esc(g) + '</option>').join('') + '</select><label>Sección (ej. A)</label><input id="mS" maxlength="3" style="text-transform:uppercase">' +
+    '<label>Docente tutor (opcional)</label><select id="mT"><option value="">— Sin tutor —</option>' + docs.map(d => '<option value="' + esc(d.id) + '">' + esc(d.texto) + '</option>').join('') + '</select>' +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="mOk">Crear</button></div>');
+  $('#mOk').onclick = async () => {
+    const r = await call('crud.guardar', { modulo: 'cursos', datos: { ANO_ESCOLAR: S.ano, GRADO: $('#mG').value, SECCION: $('#mS').value.toUpperCase(), ID_DOCENTE_TUTOR: $('#mT').value } });
+    if (!r.ok) return toast(r.error, 'bad');
+    closeModal(); toast('Curso guardado.', 'ok'); await recargaCursos(); go(S.view);
+  };
+}
+
+/* =====================================================================
+   CONSULTA INDIVIDUAL
+   ===================================================================== */
+function vConsulta() {
+  $('#main').innerHTML = '<h2>Consulta individual</h2><div class="bar"><label>Buscar estudiante (nombre o matrícula)<input type="search" id="qBus" style="min-width:300px" placeholder="Escriba al menos 2 letras…"></label></div><div id="qRes"></div><div id="qFicha"></div>';
+  let tmr; $('#qBus').oninput = e => { clearTimeout(tmr); const q = e.target.value; tmr = setTimeout(() => busca(q), 300); };
+}
+async function busca(q) {
+  if (q.trim().length < 2) { $('#qRes').innerHTML = ''; return; }
+  const r = await call('estudiantes.buscar', { q, ano: S.ano }, true);
+  if (!r.ok) { $('#qRes').innerHTML = '<div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  $('#qRes').innerHTML = r.data.length ? '<div class="card"><ul class="list">' + r.data.map(e => '<li><span>' + esc(e.nombre) + ' <small style="color:var(--mut)">' + esc(e.grado + ' ' + e.seccion) + '</small></span><button class="btn sec" onclick="ficha(\'' + esc(e.idEstudiante) + '\')">Ver</button></li>').join('') + '</ul></div>' : '<div class="msg">Sin resultados.</div>';
+}
+async function ficha(id) {
+  const r = await call('estudiantes.consulta', { idEstudiante: id, ano: S.ano });
+  if (!r.ok) return toast(r.error, 'bad');
+  const d = r.data, c = d.curso, e = d.estudiante;
+  $('#qRes').innerHTML = '';
+  $('#qFicha').innerHTML = '<div class="card"><div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center"><div><h2 style="margin:0">' + esc(d.datos.nombre) + '</h2><div class="status">' + esc(c.grado + ' ' + c.seccion) + ' · Año ' + esc(c.ano) + (d.datos.matricula ? ' · Matrícula ' + esc(d.datos.matricula) : '') + ' · ' + esc(d.datos.estado || '') + '</div></div><div>Situación final: ' + chip(e.situacion) + ' <button class="btn" onclick="verBoletin(\'' + esc(id) + '\')">Ver boletín</button></div></div></div>' +
+    '<div class="tw" style="max-height:none"><table class="t"><thead><tr><th class="l" rowspan="2">Asignatura</th><th colspan="4">Promedio de notas por período</th><th colspan="4">Promedio de competencias (PC)</th><th rowspan="2">C.F.</th><th rowspan="2">C.C.F.</th><th rowspan="2">C.EX.F.</th><th rowspan="2">Especial</th><th rowspan="2">Estado</th></tr><tr>' +
+    [1, 2, 3, 4].map(p => '<th>P' + p + '</th>').join('') + [1, 2, 3, 4].map(p => '<th>PC' + p + '</th>').join('') + '</tr></thead><tbody>' +
+    c.asignaturas.map(a => { const x = e.registros[a.id], k = x.calc; return '<tr><td class="l">' + esc(a.nombre) + '</td>' + k.periodos.map(p => '<td class="' + low(p.promedio) + '">' + (p.promedio === null ? '' : t1(p.promedio)) + (p.pendientesRP ? ' <span title="Recuperación pendiente">⚠</span>' : '') + '</td>').join('') +
+      k.pcMostrar.map(v => '<td class="' + low(v) + '">' + f1(v) + '</td>').join('') + '<td><b>' + v0(k.cf) + '</b></td><td>' + v0(k.comp.ccf) + '</td><td>' + v0(k.ext.cexf) + '</td><td>' + v0(x.notas.CESP) + '</td><td>' + chip(k.estado) + '</td></tr>'; }).join('') +
+    '</tbody></table></div><div class="card" style="margin-top:12px"><b>Asistencia:</b> ' + [1, 2, 3, 4].map(p => 'P' + p + ': ' + (e.asistencia.periodos[p] === null ? '–' : t1(e.asistencia.periodos[p]) + '%')).join(' · ') + ' · Anual: ' + (e.asistencia.anual === null ? '–' : t1(e.asistencia.anual) + '%') + '</div>';
+  histAcad(id); obsFicha(id, c.idSeccion);
+  window.scrollTo(0, 0);
+}
+async function obsFicha(id, idSeccion) {
+  if (!can('observaciones.ver')) return;
+  const r = await call('observaciones.listar', { ano: S.ano, idSeccion, idEstudiante: id, tam: 50 }, true);
+  if (r.ok && r.data.items.length) $('#qFicha').insertAdjacentHTML('beforeend', '<div class="card"><b>Observaciones (' + r.data.total + '):</b><ul class="list">' + r.data.items.map(x =>
+    '<li><span><b>' + esc(x.fecha) + '</b> · ' + chip(x.tipo) + (x.asignatura ? ' · ' + esc(x.asignatura) : '') + '<br>' + esc(x.texto) + '</span><span class="status">' + esc(x.docente) + '</span></li>').join('') + '</ul></div>');
+}
+async function histAcad(id) {
+  const r = await call('estudiantes.historial', { idEstudiante: id }, true);
+  if (r.ok && r.data.length) $('#qFicha').insertAdjacentHTML('beforeend', '<div class="card"><b>Historial académico:</b> ' + r.data.map(h => esc(h.ano) + ' · ' + esc(h.curso) + ' · ' + chip(h.situacion)).join(' &nbsp;|&nbsp; ') + '</div>');
+}
+function verBoletin(id) { S.repPre = { tipo: 'boletin', id }; go('rep'); }
+
+/* =====================================================================
+   REPORTES
+   ===================================================================== */
+/* =====================================================================
+   ★★★ CONFIGURACIÓN DE IMPRESIÓN Y PDF — EDITE SOLO ESTE BLOQUE ★★★
+   ===================================================================== */
+// ★ LOGO: imagen en formato "data URI". Para cambiarlo: convierta su imagen a Base64
+//   (por ejemplo en base64.guru/converter/encode/image) y pegue el resultado entre las comillas.
+//   Deje '' (vacío) si no quiere logo.
+const LOGO_B64 = 'data:image/jpeg;base64,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';
+
+const IMP = {
+  logo: LOGO_B64,
+
+  // ★ Texto del encabezado de cada tarjeta P1–P3. Puede ser texto fijo o una función de los datos del centro, por ejemplo:
+  //   linea1: d => d.centro.centro        (nombre del centro configurado en el sistema)
+  //   linea2: d => 'Prof. ' + d.centro.director
+  encabezado: {
+    linea1: 'CENTRO EDUCATIVO',
+    linea2: 'Prof.Niove Estela Mariot',
+    linea3: '“Educacion para un mejor futuro”'
+  },
+
+  // ★ BOLETÍN FINAL (diseño del Excel "nota 6toA")
+  boletin: {
+    mostrarEncabezadoCentro: false,      // true = agrega arriba el encabezado del centro educativo (regional, distrito, centro)
+    // ★ Títulos de los 4 grupos de competencias, en el orden de las columnas. \n = salto de línea. null = usar los nombres del sistema
+    competencias: ['Comunicativa', 'Pensamiento Lógico, Creativo y Crítico\nResolución de Problemas', 'Ética Ciudadana\nDesarrollo Personal y Espiritual', 'Científica y Tecnológica\nAmbiental y de la Salud'],
+    etiquetaOptativa: 'Matemáticas & Tecnología',   // ★ texto de respaldo de la fila optativa (solo se usa si la asignatura no trae nombre propio)
+    grados: { '1ro': 'Primero', '2do': 'Segundo', '3ro': 'Tercero', '4to': 'Cuarto', '5to': 'Quinto', '6to': 'Sexto' },   // ★ cómo se escribe el grado
+    alturaAreas: 4.6                     // ★ alto total (pulgadas) que ocupan las filas de áreas; se reparte entre las áreas
+  },
+
+  etiquetaProfesor: 'Profesor/a Guia',   // ★ texto bajo la firma (el nombre del profesor sale de d.tutor)
+  tarjetasPorHoja: 4,                    // ★ el diseño (2 × 2) está pensado para 4; con otro número cambie el CSS .cards
+  lineasCorte: true,                     // ★ true = líneas punteadas para recortar las tarjetas; false = sin líneas
+
+  // ★ Descarga directa en PDF (botón "Descargar PDF" del módulo Reportes)
+  pdf: {
+    margen: 0.25,                        // pulgadas (igual que @page y --margen del CSS)
+    escala: 2,                           // calidad de la imagen: 1 = liviano, 2 = buena, 3 = excelente (archivo más pesado)
+    calidadJpg: 0.92,                    // 0.5 a 1
+    urlHtml2canvas: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+    urlJsPDF: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+    // ★ Nombre del archivo PDF descargado
+    nombre: (tipo, per, d) => ({ entrega: 'Entrega_P' + per, registro: 'Registro', boletin: 'Boletin_final', pend: 'Pendientes_P' + per, situacion: 'Situacion_final' }[tipo] || 'Reporte') + '_' + d.grado + d.seccion
+  }
+};
+
+/* ---- Descarga directa en PDF: convierte cada hoja del reporte en una página Carta horizontal ---- */
+const cargaScript = url => new Promise((ok, ko) => { const s = document.createElement('script'); s.src = url; s.onload = ok; s.onerror = () => ko(new Error('no se pudo cargar ' + url)); document.head.appendChild(s); });
+async function descargarPDF() {
+  const btn = $('#rPdf'), pgs = [...document.querySelectorAll('#rOut .pg')];
+  if (!pgs.length) { toast('Primero genere el reporte', 'bad'); return; }
+  const txt = btn.textContent; btn.disabled = true;
+  try {
+    toast('Preparando PDF…');
+    if (!window.html2canvas) await cargaScript(IMP.pdf.urlHtml2canvas);          // las librerías se cargan solo al usar el botón
+    if (!(window.jspdf && window.jspdf.jsPDF)) await cargaScript(IMP.pdf.urlJsPDF);
+    const M = IMP.pdf.margen, W = 11 - 2 * M, H = 8.5 - 2 * M;                   // área útil de la hoja Carta horizontal (pulgadas)
+    const pdf = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'in', format: 'letter', compress: true });
+    let primera = true;
+    const poner = cv => {                                                         // agrega una imagen como página del PDF
+      if (!primera) pdf.addPage(); primera = false;
+      pdf.addImage(cv.toDataURL('image/jpeg', IMP.pdf.calidadJpg), 'JPEG', M, M, W, W * cv.height / cv.width);
+    };
+    window.scrollTo(0, 0);
+    for (let i = 0; i < pgs.length; i++) {
+      btn.textContent = 'Generando ' + (i + 1) + '/' + pgs.length + '…';
+      await new Promise(r => setTimeout(r, 30));                                  // deja respirar a la pantalla
+      const el = pgs[i], fija = /\b(ent|bol|bf|por)\b/.test(el.className), ov = el.style.overflow;
+      if (!fija) el.style.overflow = 'visible';
+      const cv = await html2canvas(el, { scale: IMP.pdf.escala, backgroundColor: '#fff', useCORS: true, logging: false, scrollX: 0, scrollY: 0, width: fija ? el.offsetWidth : el.scrollWidth });
+      el.style.overflow = ov;
+      const alto = W * cv.height / cv.width;
+      if (alto <= H + 0.02) poner(cv);                                            // hojas fijas (P1–P3, boletín): 1 hoja = 1 página
+      else {                                                                      // reportes largos (registro, situación…): se parten en varias páginas
+        const px = Math.floor(cv.width * H / W);
+        for (let y = 0; y < cv.height; y += px) {
+          const hh = Math.min(px, cv.height - y), c2 = document.createElement('canvas');
+          c2.width = cv.width; c2.height = hh; c2.getContext('2d').drawImage(cv, 0, y, cv.width, hh, 0, 0, cv.width, hh); poner(c2);
+        }
+      }
+    }
+    const d = S.repData, nombre = IMP.pdf.nombre($('#rTipo').value, $('#rPer').value, d).replace(/[^\w\-]+/g, '_') + '.pdf';
+    pdf.save(nombre);
+    toast('PDF descargado: ' + nombre, 'ok');
+  } catch (err) {
+    toast('No se pudo crear el PDF (' + err.message + '). Verifique su conexión a internet e inténtelo de nuevo.', 'bad');
+  } finally { btn.textContent = txt; btn.disabled = false; }
+}
+
+async function vRep() {
+  if (!S.curso) return sinCursos();
+  const pre = S.repPre; S.repPre = null;
+  $('#main').innerHTML = '<h2>Reportes</h2><div class="card no-print"><div class="bar">' + cursoSelect('rCurso', S.curso) +
+    '<label>Reporte<select id="rTipo"><option value="entrega">Entrega de calificaciones por período (P1–P3)</option><option value="registro">Registro por asignatura y período</option><option value="boletin">Boletín final (P1–P4, completiva, extraordinaria, especial)</option><option value="pend">Pendientes y recuperaciones</option><option value="situacion">Situación final del curso</option></select></label>' +
+    '<label id="rPerBox">Período<select id="rPer"><option value="1">P1</option><option value="2">P2</option><option value="3">P3</option></select></label>' +
+    '<label id="rAsigBox" class="hidden">Asignatura<select id="rAsig"></select></label>' +
+    '<label id="rEstBox" class="hidden">Estudiante<select id="rEst"></select></label>' +
+    '<label id="rPortBox" class="hidden"><span>Portada</span><select id="rPort"><option value="1">Incluir portada</option><option value="0">Sin portada</option></select></label>' +
+    '<button class="btn" id="rGen">Generar</button><button class="btn ok" id="rPdf" disabled>⬇️ Descargar PDF</button></div>' +
+    '<div class="status">Elija el reporte, pulse Generar para ver la vista previa y luego ⬇️ Descargar PDF (Carta horizontal). P1–P3: 4 tarjetas por hoja · Boletín final: 1 hoja completa por estudiante.</div></div><div id="rOut" class="rep"></div>';
+  $('#rCurso').onchange = e => { S.curso = e.target.value; S.repData = null; };
+  $('#rTipo').onchange = ajustaRep;
+  $('#rGen').onclick = generaRep; $('#rPdf').onclick = descargarPDF;
+  if (pre) { $('#rTipo').value = pre.tipo; ajustaRep(); await generaRep(pre.id); } else ajustaRep();
+}
+function ajustaRep() {
+  const t = $('#rTipo').value;
+  $('#rPerBox').classList.toggle('hidden', !(t === 'entrega' || t === 'registro' || t === 'pend'));
+  $('#rAsigBox').classList.toggle('hidden', t !== 'registro');
+  $('#rEstBox').classList.toggle('hidden', !(t === 'boletin' || t === 'entrega'));
+  $('#rPortBox').classList.toggle('hidden', t !== 'boletin');
+  const sel = $('#rPer'), actual = sel.value;
+  const ops = t === 'entrega' ? [1, 2, 3] : [1, 2, 3, 4];
+  sel.innerHTML = (t === 'registro' ? '<option value="0">Todos</option>' : '') + ops.map(p => '<option value="' + p + '">P' + p + '</option>').join('');
+  if ([...sel.options].some(o => o.value === actual)) sel.value = actual;
+}
+async function cargaDatosCurso() {
+  const c = cursoObj();
+  const r = await call('reportes.curso', { ano: S.ano, idSeccion: c.idSeccion });
+  if (!r.ok) { toast(r.error, 'bad'); return null; }
+  S.repData = r.data; return r.data;
+}
+async function generaRep(preId) {
+  const d = await cargaDatosCurso(); if (!d) return;
+  const t = $('#rTipo').value;
+  // selectores dependientes de los datos
+  const selA = $('#rAsig'), selE = $('#rEst'), aPrev = selA.value, ePrev = selE.value;
+  selA.innerHTML = d.asignaturas.map(a => '<option value="' + esc(a.id) + '">' + esc(a.nombre) + '</option>').join(''); if (aPrev) selA.value = aPrev;
+  selE.innerHTML = '<option value="">Todos los estudiantes</option>' + d.estudiantes.map(e => '<option value="' + esc(e.idEstudiante) + '">' + e.num + '. ' + esc(e.nombre) + '</option>').join('');
+  if (typeof preId === 'string') selE.value = preId; else if (ePrev) selE.value = ePrev;
+  const out = $('#rOut'), per = +$('#rPer').value;
+  const ests = selE.value ? d.estudiantes.filter(e => e.idEstudiante === selE.value) : d.estudiantes;
+  if (!d.estudiantes.length) { out.innerHTML = '<div class="card empty">Este curso no tiene estudiantes.</div>'; return; }
+  if (t === 'entrega') out.innerHTML = repEntrega(d, ests, per);
+  else if (t === 'registro') out.innerHTML = repRegistro(d, selA.value || d.asignaturas[0].id, per);
+  else if (t === 'boletin') out.innerHTML = repBoletin(d, ests, $('#rPort').value === '1');
+  else if (t === 'pend') out.innerHTML = repPend(d, per);
+  else out.innerHTML = repSituacion(d);
+  $('#rPdf').disabled = false;
+}
+const cab = (d, titulo) => '<div class="rep-head">' + esc(d.centro.regional ? 'Regional Educativa: ' + d.centro.regional + '   Distrito Educativo: ' + d.centro.distrito : '') + '<br><b>' + esc(d.centro.centro) + '</b><br>Año Escolar: ' + esc(d.ano) + ' · Nivel: ' + esc(d.centro.nivel) + (titulo ? '<br><b>' + titulo + '</b>' : '') + '</div>';
+const asigsOrden = d => d.asignaturas.slice().sort((a, b) => a.orden - b.orden);
+const abrevComp = d => d.asignaturas[0].competencias.map(c => c.abrev);
+
+/* ---- Entrega de calificaciones P1–P3: 4 tarjetas por hoja (diseño igual al registro en Excel) ---- */
+function repEntrega(d, ests, per) {
+  const ab = abrevComp(d), as = asigsOrden(d), min = d.min, E = IMP.encabezado;
+  const val = x => esc(typeof x === 'function' ? x(d) : x);          // acepta texto fijo o función(d)
+  const nCol = 1 + ab.length * 2;                                    // columnas: Asignatura + (RP + nota) por competencia
+  const cols = '<colgroup><col style="width:30%">' + ab.map(() => '<col style="width:' + (70 / (ab.length * 2)) + '%"><col style="width:' + (70 / (ab.length * 2)) + '%">').join('') + '</colgroup>';
+
+  // ---- UNA TARJETA (un estudiante) ----
+  const card = e =>
+    '<div class="tj">' +
+      // Encabezado: logo + 3 líneas de texto (se cambian en IMP.encabezado)
+      '<div class="tj-cab">' + (IMP.logo ? '<img src="' + IMP.logo + '" alt="">' : '') +
+        '<div class="tj-tx"><b>' + val(E.linea1) + '</b><br>' + val(E.linea2) + '<br>' + val(E.linea3) + '</div></div>' +
+      '<table class="rt tj-t">' + cols + '<tbody>' +
+        // Fila 1: Curso y Sección ........ No:
+        '<tr><th class="l">Curso y Sección:</th><td class="l" colspan="' + (nCol - 4) + '">' + esc(d.grado + d.seccion) + '</td><th class="r" colspan="2">No:</th><td class="l">' + e.num + '</td></tr>' +
+        // Fila 2: nombre del estudiante (barra gris)
+        '<tr><th class="nom" colspan="' + nCol + '">' + esc(e.nombre) + '</th></tr>' +
+        // Fila 3: período
+        '<tr><td class="l">' + PERIODOS[per - 1] + '</td><th colspan="' + (nCol - 1) + '">P' + per + '</th></tr>' +
+        // Fila 4: encabezados RP1 | CC | RP1 | CRP ... (las abreviaturas salen de la configuración de competencias)
+        '<tr><th class="l">Asignaturas</th>' + ab.map(a => '<th>RP' + per + '</th><th>' + esc(a) + '</th>').join('') + '</tr>' +
+        // Filas de asignaturas (nota en rojo si es menor que el mínimo)
+        as.map(a => { const n = e.registros[a.id].notas;
+          return '<tr class="m"><td class="l">' + esc(a.nombreReporte) + '</td>' + ab.map((_, i) => { const k = i + 1, p = n['P' + per + 'C' + k], r = n['R' + per + 'C' + k];
+            return '<td>' + v0(r) + '</td><td class="' + (p !== null && p < min ? 'low' : '') + '">' + v0(p) + '</td>'; }).join('') + '</tr>'; }).join('') +
+      '</tbody></table>' +
+      // Firma del profesor guía
+      '<div class="tj-firma"><div class="ln"></div><b>' + esc(d.tutor || '') + '</b>' + esc(IMP.etiquetaProfesor) + '</div>' +
+    '</div>';
+
+  // ---- 4 tarjetas por hoja ----
+  let h = '';
+  for (let i = 0; i < ests.length; i += IMP.tarjetasPorHoja)
+    h += '<div class="pg ent"><div class="cards' + (IMP.lineasCorte ? ' corte' : '') + '">' + ests.slice(i, i + IMP.tarjetasPorHoja).map(card).join('') + '</div></div>';
+  return h;
+}
+
+/* ---- Registro por asignatura (como la hoja de cada asignatura) ---- */
+function repRegistro(d, idAsig, per) {
+  const a = d.asignaturas.find(x => x.id === idAsig), min = d.min, comps = a.competencias, ps = per ? [per] : [1, 2, 3, 4];
+  let h = '<div class="pg">' + cab(d, 'REGISTRO DE RENDIMIENTO DE CALIFICACIONES') + '<div style="font-size:10.5px;margin-bottom:4px"><b>Asignatura:</b> ' + esc(a.nombre) + ' &nbsp; <b>Docente:</b> ' + esc(a.docente) + ' &nbsp; <b>Grado:</b> ' + esc(d.grado) + ' &nbsp; <b>Sección:</b> ' + esc(d.seccion) + '</div>' +
+    '<table class="rt sm"><thead><tr><th rowspan="3">No.</th><th rowspan="3" class="l">Nombres</th>' + comps.map(c => '<th colspan="' + ps.length * 2 + '">' + esc(c.abrev) + '</th>').join('') +
+    (per ? '' : '<th colspan="4">PC</th><th rowspan="3">C.F</th><th colspan="4">Completiva</th><th colspan="5">Extraordinaria</th><th colspan="2">Especial</th><th rowspan="3">A</th><th rowspan="3">R</th>') + '</tr><tr>' +
+    comps.map(() => ps.map(p => '<th colspan="2">P' + p + '</th>').join('')).join('') +
+    (per ? '' : '<th rowspan="2">PC1</th><th rowspan="2">PC2</th><th rowspan="2">PC3</th><th rowspan="2">PC4</th><th rowspan="2">50% C.F</th><th rowspan="2">C.E.C.</th><th rowspan="2">50% C.E.C</th><th rowspan="2">C.C.F.</th><th rowspan="2">30% CFA</th><th rowspan="2">C.E.EX</th><th rowspan="2">70% C.E.EX</th><th rowspan="2">C.EX.F</th><th rowspan="2">C.F</th><th rowspan="2">C.E.</th>') + '</tr><tr>' +
+    comps.map(() => ps.map(() => '<th>P</th><th>RP</th>').join('')).join('') + '</tr></thead><tbody>';
+  d.estudiantes.forEach(e => {
+    const x = e.registros[idAsig], n = x.notas, c = x.calc;
+    h += '<tr><td>' + e.num + '</td><td class="l" style="white-space:nowrap">' + esc(e.nombre) + '</td>';
+    comps.forEach((cc, i) => ps.forEach(p => { const pv = n['P' + p + 'C' + (i + 1)]; h += '<td class="' + (pv !== null && pv < min ? 'low' : '') + '">' + v0(pv) + '</td><td>' + v0(n['R' + p + 'C' + (i + 1)]) + '</td>'; }));
+    if (!per) {
+      const m = c.etapa && c.etapa !== 'CF' ? ' ✓' : '';
+      h += c.pcMostrar.map(v => '<td class="' + low(v) + '">' + f1(v) + '</td>').join('') + '<td><b>' + v0(c.cf) + '</b></td>' +
+        '<td>' + fn(c.comp.base) + '</td><td>' + v0(c.comp.cec) + '</td><td>' + fn(c.comp.mitad) + '</td><td>' + v0(c.comp.ccf) + '</td>' +
+        '<td>' + fn(c.ext.base) + '</td><td>' + v0(c.ext.ceex) + '</td><td>' + fn(c.ext.mitad) + '</td><td>' + v0(c.ext.cexf) + '</td><td>' + v0(c.esp.cf) + '</td><td>' + v0(c.esp.cesp) + '</td>' +
+        '<td><b>' + (c.A === null ? '' : c.A + m) + '</b></td><td class="low">' + v0(c.R) + '</td>';
+    }
+    h += '</tr>';
+  });
+  return h + '</tbody></table></div>';
+}
+
+/* ---- Boletín final: igual al Excel "nota 6toA" (P1-P4 por competencia, PC, completiva, extraordinaria, especial, asistencia y situación) ---- */
+const TEMAS_BOLETIN = {
+  '1ro': { ord: '1', suf: 'ro', ciclo: 'PRIMER CICLO',  acento: '#1FA39F', acentoClaro: '#8FD3D0', verde: '#1B7F7B', cabTexto: '#FFFFFF' },
+  '2do': { ord: '2', suf: 'do', ciclo: 'PRIMER CICLO',  acento: '#1FA39F', acentoClaro: '#8FD3D0', verde: '#1B7F7B', cabTexto: '#FFFFFF' }, // provisional
+  '3ro': { ord: '3', suf: 'ro', ciclo: 'PRIMER CICLO',  acento: '#1FA39F', acentoClaro: '#8FD3D0', verde: '#1B7F7B', cabTexto: '#FFFFFF' }, // provisional
+  '4to': { ord: '4', suf: 'to', ciclo: 'SEGUNDO CICLO', acento: '#1FA39F', acentoClaro: '#8FD3D0', verde: '#1B7F7B', cabTexto: '#FFFFFF' },
+  '5to': { ord: '5', suf: 'to', ciclo: 'SEGUNDO CICLO', acento: '#1FA39F', acentoClaro: '#8FD3D0', verde: '#1B7F7B', cabTexto: '#FFFFFF' }, // provisional
+  '6to': { ord: '6', suf: 'to', ciclo: 'SEGUNDO CICLO', acento: '#1FA39F', acentoClaro: '#8FD3D0', verde: '#1B7F7B', cabTexto: '#FFFFFF' }  // provisional
+};
+function normalizarGradoTema_(g) {
+  const s = String(g == null ? '' : g).trim().toLowerCase();
+  if (/^(1|1ro|1er|prim)/.test(s)) return '1ro';
+  if (/^(2|2do|seg)/.test(s)) return '2do';
+  if (/^(3|3ro|3er|ter)/.test(s)) return '3ro';
+  if (/^(4|4to|cuar)/.test(s)) return '4to';
+  if (/^(5|5to|quin)/.test(s)) return '5to';
+  if (/^(6|6to|sex)/.test(s)) return '6to';
+  return '1ro';
+}
+function gradoBoletin_(g) {
+  const k = normalizarGradoTema_(g), t = TEMAS_BOLETIN[k] || TEMAS_BOLETIN['1ro'];
+  return t.ord + t.suf + ' Grado';
+}
+function partirCodigoBoletin_(t) {
+  const m = /^\s*([0-9][0-9\-]*)\s*[-–]?\s*(.*)$/.exec(String(t || ''));
+  return m ? [m[1].replace(/-$/, ''), m[2]] : ['', String(t || '')];
+}
+function separarNombresBoletin_(e) {
+  let nombres = String(e.nombres == null ? '' : e.nombres).trim();
+  let apellidos = String(e.apellidos == null ? '' : e.apellidos).trim();
+  if ((!nombres || !apellidos) && e.nombre) {
+    const full = String(e.nombre).trim();
+    const i = full.indexOf(',');
+    if (i >= 0) {
+      if (!apellidos) apellidos = full.slice(0, i).trim();
+      if (!nombres) nombres = full.slice(i + 1).trim();
+    } else if (!nombres) {
+      nombres = full;
+      try { console.warn('Boletín: nombre sin coma, no se pudo separar apellidos', e.idEstudiante || e.num || ''); } catch (err) {}
+    }
+  }
+  return { nombres, apellidos };
+}
+function repBoletin(d, ests, portada) {
+  const B = IMP.boletin, min = d.min, comps = d.asignaturas[0].competencias, nK = comps.length;
+  const todas = d.asignaturas.slice().sort((a, b) => a.ordenBoletin - b.ordenBoletin);
+  const nomArea = a => { if (!a.esOptativa) return a.nombre; const n = String(a.nombre || '').replace(/^\s*optativa\s*[:\-–—(]*\s*/i, '').replace(/\)\s*$/, '').trim(); return n || B.etiquetaOptativa; };   // 'Optativa (Matemáticas & Tecnología)' -> 'Matemáticas & Tecnología' (solo al mostrar)
+  const norm = todas.filter(a => !a.esOptativa), opt = todas.filter(a => a.esOptativa), as = norm.concat(opt);   // la optativa siempre al final
+  const nomComp = i => (B.competencias && B.competencias[i]) || comps[i].nombre;
+
+  // Anchos relativos de las 35 columnas (se convierten a %). ★ Cambie los números para ensanchar/estrechar columnas
+  const W = [2.3, 12].concat(Array(nK * 4).fill(2.45), Array(4).fill(3), [2.9], Array(8).fill(2.6), [2.6, 2.6], [3.6, 3.6]), tot = W.reduce((x, y) => x + y, 0);
+  const colgroup = '<colgroup>' + W.map(w => '<col style="width:' + (100 * w / tot).toFixed(3) + '%">').join('') + '</colgroup>';
+  const rot = (t, c) => '<th rowspan="2" class="vt v2"><span>' + t + '</span></th>';
+
+  // Encabezado de 3 filas (igual al Excel)
+  const hdr = '<thead><tr class="h1"><th colspan="2" rowspan="2">COMPETENCIAS FUNDAMENTALES</th>' +
+    comps.map((c, i) => '<th colspan="4" rowspan="2">' + esc(nomComp(i)) + '</th>').join('') +
+    '<th colspan="4" rowspan="2">PROMEDIO GRUPO DE COMPETENCIAS ESPECÍFICAS</th><th rowspan="3" class="vt v3"><span>Calificación Final del Área</span></th>' +
+    '<th colspan="4">CALIFICACIÓN COMPLETIVA</th><th colspan="4">CALIFICACIÓN EXTRAORDINARIA</th><th colspan="2">EVALUACIÓN ESPECIAL</th><th colspan="2" rowspan="2">SITUACIÓN FINAL EN LA ASIGNATURA</th></tr>' +
+    '<tr class="h2">' + ['50% C.F.', 'C.E.C.', '50% C.E.C.', 'C.C.F.', '30% C.F.', 'C.E.EX', '70% C.E.EX', 'C.EX.F.', 'C.F.', 'C.E.'].map(rot).join('') + '</tr>' +
+    '<tr class="h3"><th colspan="2">PERÍODOS</th>' + comps.map(() => '<th>P1</th><th>P2</th><th>P3</th><th>P4</th>').join('') + '<th>PC1</th><th>PC2</th><th>PC3</th><th>PC4</th><th>A</th><th>R</th></tr></thead>';
+
+  // Una fila de área para un estudiante (misma lógica de cálculo de siempre)
+  const fila = (e, a, i) => {
+    const x = e.registros[a.id], c = x.calc;
+    let h = '<tr class="br">';
+    if (i === 0) h += '<td rowspan="' + norm.length + '" class="vt vl"><span>ÁREAS CURRICULARES</span></td>';
+    else if (i === norm.length) h += '<td rowspan="' + opt.length + '" class="vt vl so"><span>SALIDA OPTATIVA</span></td>';
+    h += '<td class="an">' + esc(nomArea(a)) + '</td>';
+    for (let k = 1; k <= nK; k++) for (let p = 1; p <= 4; p++) { const v = c.vigente[p - 1][k - 1]; h += '<td class="' + (v !== null && v < min ? 'low' : '') + '">' + v0(v) + '</td>'; }
+    h += c.pcMostrar.map(v => '<td>' + f1(v) + '</td>').join('') + '<td><b>' + v0(c.cf) + '</b></td>' +
+      '<td>' + fn(c.comp.base) + '</td><td>' + v0(c.comp.cec) + '</td><td>' + fn(c.comp.mitad) + '</td><td>' + v0(c.comp.ccf) + '</td>' +
+      '<td>' + fn(c.ext.base) + '</td><td>' + v0(c.ext.ceex) + '</td><td>' + fn(c.ext.mitad) + '</td><td>' + v0(c.ext.cexf) + '</td>' +
+      '<td>' + v0(c.esp.cf) + '</td><td>' + v0(c.esp.cesp) + '</td><td><b>' + (c.cf != null && c.A != null && Number(c.A) >= min ? '✓' : '') + '</b></td><td></td></tr>';   // situación final: ✓ solo si ya existe la Calificación Final del Área (c.cf) y la nota final válida (c.A: área, completiva o extraordinaria) es >= mínimo; sin texto ni números
+    return h;
+  };
+  const leyenda = [['(P1)', 'Período 1'], ['(P2)', 'Período 2'], ['(P3)', 'Período 3'], ['(P4)', 'Período 4'], ['(PC)', 'Promedio Grupo de Competencias Específicas'], ['(C.F.)', 'Calificación Final'], ['(C.E.C.)', 'Calificación Evaluación Completiva'], ['(C.C.F.)', 'Calificación Completiva Final'], ['(C.E. EX)', 'Calificación Evaluación Extraordinaria'], ['(C.EX.F.)', 'Calificación Extraordinaria Final'], ['(C.E.)', 'Calificación Especial'], ['(A)', 'Aprobado'], ['(R)', 'Reprobado']];
+
+  let h = '';
+  ests.forEach(e => {
+    const sit = e.situacion, asis = e.asistencia;
+    const msg = sit === 'PROMOVIDO' ? 'Felicitaciones por este logro tan importante, tu dedicación y esfuerzo han dado frutos, y este es solo el comienzo de muchas metas alcanzadas. Sigue trabajando con constancia y entusiasmo, porque un gran futuro te espera.' :
+      sit === 'REPITENTE' ? 'Aunque este año no haya dado el resultado que esperabas, recuerda que cada desafío es una oportunidad para aprender y mejorar. Lo más importante es seguir adelante con esfuerzo y determinación. Estoy seguro que el próximo año lograrás grandes cosas.' : '';
+    const pa = p => asis.periodos[p], pct = v => v === null || v === undefined ? '' : t1(v);
+    const asisTabla = '<table class="bf-as"><colgroup><col style="width:17%"><col style="width:21%"><col style="width:21%"><col style="width:20.5%"><col style="width:20.5%"></colgroup>' +
+      '<tr><th rowspan="2">Períodos</th><th>Asistencia</th><th>Ausencia</th><th colspan="2">% Anual</th></tr><tr><th>%</th><th>%</th><th>Asistencia</th><th>Ausencia</th></tr>' +
+      [1, 2, 3, 4].map(p => '<tr><td><b>P' + p + '</b></td><td>' + pct(pa(p)) + '</td><td>' + (pa(p) === null || pa(p) === undefined ? '' : t1(100 - pa(p))) + '</td>' +
+        (p === 1 ? '<td rowspan="4">' + pct(asis.anual) + '</td><td rowspan="4">' + (asis.anual === null || asis.anual === undefined ? '' : t1(100 - asis.anual)) + '</td>' : '') + '</tr>').join('') + '</table>';
+
+    if (portada) {
+      const c = d.centro || {};
+      // ★ Textos fijos bajo el logo (cámbielos aquí cuando haga falta). El nombre del liceo sale en negrita.
+      const TXT_LOGO = { linea1: 'Centro Educativo de Jornada Escolar Extendida', centro: 'Liceo Prof. Niove Estela Mariot', lema: 'Educación para un mejor futuro' };
+      const gk = normalizarGradoTema_(d.grado);
+      const T = TEMAS_BOLETIN[gk] || TEMAS_BOLETIN['1ro'];
+      const dis = partirCodigoBoletin_(c.distrito), reg = partirCodigoBoletin_(c.regional);
+      const nivelTxt = /secund/i.test(String(c.nivel || '')) ? 'NIVEL SECUNDARIO' : (/prim/i.test(String(c.nivel || '')) ? 'NIVEL PRIMARIO' : ('NIVEL ' + String(c.nivel || '').toUpperCase()).trim());
+      const anoTxt = String(d.ano || '').replace('-', ' - ');
+      const na = separarNombresBoletin_(e);
+      const logoHtml = IMP.logo ? '<img src="' + IMP.logo + '" alt="Logo del centro">' : '';
+      const f = et => '<div class="f"><span class="et">' + et + '</span><span class="val"></span></div>';
+      const fv = (et, v) => '<div class="f"><span class="et">' + et + '</span><span class="val">' + esc(v == null ? '' : v) + '</span></div>';
+
+      const izq = '<div class="cv-half cv-left" style="--acento:' + T.acento + ';--acento-claro:' + T.acentoClaro + ';--verde:' + T.verde + ';--cab-texto:' + T.cabTexto + '">' +
+        '<div class="banda">Firma del padre, madre o tutor</div>' +
+        '<div class="tit-periodos">Períodos de Reportes de Calificaciones</div>' +
+        ['Ago – Sept – Oct', 'Nov – Dic – Ene', 'Feb – Mar', 'Abr – May – Jun'].map(p => '<div class="per"><span>' + p + '</span><i></i></div>').join('') +
+        '<div class="banda sit">Situación del estudiante</div>' +
+        '<table class="sit-tabla"><tr><th>Promovido/a</th><th>Promovido con asignatura pendiente</th><th>Aplazado</th></tr><tr>' + ['PROMOVIDO', 'PROMOVIDO_PENDIENTE', 'APLAZADO'].map(k => '<td class="mk">' + (e.situacionPortada === k ? 'X' : '') + '</td>').join('') + '</tr></table>' +
+        '<div class="obs-et">Observaciones:</div><div class="obs-lin"><i></i><i></i><i></i><i></i><i></i></div>' +
+        '<div class="firmas"><div><div class="nom">' + esc(d.tutor || '') + '</div><div class="lin">Maestro/a encargado/a del curso</div></div><div><div class="nom">' + esc(c.director || '') + '</div><div class="lin">Director/a del Centro</div></div></div>' +
+      '</div>';
+
+      const der = '<div class="cv-half cv-right" style="--acento:' + T.acento + ';--acento-claro:' + T.acentoClaro + ';--verde:' + T.verde + ';--cab-texto:' + T.cabTexto + '">' +
+        '<div class="logos">' + logoHtml + '</div>' +
+        '<div class="mini"><span class="mini-sup">' + esc(TXT_LOGO.linea1) + '</span><b class="mini-centro">' + esc(TXT_LOGO.centro) + '</b><span class="mini-lema">' + esc(TXT_LOGO.lema) + '</span></div>' +
+        '<div class="titulo">Boletín de Calificaciones</div>' +
+        '<div class="insignia"><div class="num">' + T.ord + '<sup>' + T.suf + '</sup></div><div class="grado">Grado</div><div class="ciclo"><b>' + T.ciclo + '</b><small>' + esc(nivelTxt) + '</small></div></div>' +
+        '<div class="form">' +
+          '<div class="cabecera-2"><div class="f" style="flex:1"><span class="et">Año escolar</span><span class="val" style="min-width:110px">' + esc(anoTxt) + '</span></div></div>' +
+          '<div class="cabecera-2"><div class="f" style="flex:0 0 38%"><span class="et">Sección</span><span class="val">' + esc(d.seccion || '') + '</span></div><div class="f" style="flex:1"><span class="et">Número de orden</span><span class="val">' + esc(e.num == null ? '' : e.num) + '</span></div></div>' +
+          fv('Nombres:', na.nombres) +
+          fv('Apellidos', na.apellidos) +
+          '<div class="f dos"><div class="l1"><span class="et">Nombre del centro</span></div><div class="f" style="margin:0"><span class="et">Educativo</span><span class="val">' + esc(c.centro || '') + '</span></div></div>' +
+          '<div class="f"><span class="et">Código del centro</span><span class="val cor" style="flex:none;width:130px">' + esc(c.codigo || '') + '</span></div>' +
+          '<div class="f dos"><div class="l1"><span class="et">Dirección del centro</span></div><div class="f" style="margin:0"><span class="et">Educativo</span><span class="val">' + esc(c.direccion || '') + '</span></div></div>' +
+          '<div class="f"><span class="et">Distrito educativo</span><span class="val cor" style="flex:none;width:70px">' + esc(dis[0]) + '</span><span class="sep">DE</span><span class="val">' + esc(dis[1]) + '</span></div>' +
+          '<div class="f"><span class="et">Dirección Regional de Educación</span><span class="val cor" style="flex:none;width:44px">' + esc(reg[0]) + '</span><span class="sep">DE</span><span class="val">' + esc(reg[1]) + '</span></div>' +
+        '</div>' +
+      '</div>';
+
+      h += '<div class="pg por cv-hoja1"><div class="cv-spread">' + izq + der + '</div></div>';
+    }
+
+    h += '<div class="pg bf">' + (B.mostrarEncabezadoCentro ? cab(d, '') : '') +
+      '<div class="bf-top"><span class="n">' + e.num + '</span><span class="f"><small>Nombre(s) y apellido(s)</small><b' + (String(e.nombre).length > 46 ? ' style="font-size:15px"' : String(e.nombre).length > 38 ? ' style="font-size:18px"' : '') + '>' + esc(e.nombre) + '</b></span><span class="f"><small>Grado</small><b>' + esc(B.grados[d.grado] || d.grado) + '</b></span><span class="f"><small>Sección</small><b>' + esc(d.seccion) + '</b></span></div>' +
+      '<div class="bf-bar">CALIFICACIONES DE RENDIMIENTO</div>' +
+      '<table class="bf-t" style="--bf-fila:' + (B.alturaAreas / as.length).toFixed(3) + 'in">' + colgroup + hdr + '<tbody>' + as.map((a, i) => fila(e, a, i)).join('') + '</tbody></table>' +
+      '<div class="bf-bot">' +
+        '<div class="bf-box bf-asis"><div class="bf-ttl">RESUMEN DE ASISTENCIA DEL/LA ESTUDIANTE</div>' + asisTabla + '</div>' +
+        '<div class="bf-box bf-ley"><div class="bf-ttl claro">LEYENDA:</div><div class="bf-lg">' + leyenda.map(l => '<div><b>' + l[0] + '</b>' + l[1] + '</div>').join('') + '</div></div>' +
+        '<div class="bf-der">' +
+          '<div class="bf-sit"><div>SITUACIÓN DEL/DE LA ESTUDIANTE</div><div class="l">Promovido/a:</div><div>' + (sit === 'PROMOVIDO' ? 'X' : '') + '</div><div class="l">Repitente:</div><div>' + (sit === 'REPITENTE' ? 'X' : '') + '</div></div>' +
+          '<div class="bf-cond">CONDICIÓN FINAL DEL/DE LA ESTUDIANTE:</div><div class="bf-msg">' + esc(msg) + '</div>' +
+        '</div>' +
+      '</div></div>';
+  });
+  return h;
+}
+
+/* ---- Pendientes y recuperaciones ---- */
+function repPend(d, per) {
+  const min = d.min; let rec = [], falt = [];
+  d.estudiantes.forEach(e => d.asignaturas.forEach(a => {
+    const x = e.registros[a.id], n = x.notas, pr = x.calc.periodos[per - 1];
+    a.competencias.forEach((c, i) => {
+      const p = n['P' + per + 'C' + (i + 1)], r = n['R' + per + 'C' + (i + 1)];
+      if (p !== null && p < min) rec.push([e.num, e.nombre, a.nombre, c.abrev, p, r === null ? '' : r, r === null ? 'RP PENDIENTE' : (r >= min ? 'RECUPERADA' : 'RP < ' + min)]);
+    });
+    if (pr.ingresadas < 4) falt.push([e.num, e.nombre, a.nombre, pr.ingresadas + ' de 4 notas']);
+  }));
+  const tabla = (cols, rows) => rows.length ? '<table class="rt"><thead><tr>' + cols.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map((v, i) => '<td class="' + (i === 1 || i === 2 ? 'l' : '') + '">' + esc(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table>' : '<p>✔ Sin registros.</p>';
+  return '<div class="pg">' + cab(d, 'RECUPERACIONES Y NOTAS PENDIENTES – P' + per + ' · ' + esc(d.grado + ' ' + d.seccion)) + '<h3>Notas menores de ' + min + ' (recuperación)</h3>' + tabla(['No.', 'Estudiante', 'Asignatura', 'Comp.', 'P' + per, 'RP' + per, 'Estado'], rec) +
+    '<h3>Notas por registrar</h3>' + tabla(['No.', 'Estudiante', 'Asignatura', 'Registradas'], falt) + '</div>';
+}
+
+/* ---- Situación final del curso ---- */
+function repSituacion(d) {
+  const as = asigsOrden(d);
+  let h = '<div class="pg">' + cab(d, 'SITUACIÓN FINAL – ' + esc(d.grado + ' ' + d.seccion)) + '<table class="rt sm"><thead><tr><th>No.</th><th class="l">Estudiante</th>' + as.map(a => '<th title="' + esc(a.nombre) + '">' + esc(a.abrev) + '</th>').join('') + '<th>Resultado</th></tr></thead><tbody>';
+  const cnt = { PROMOVIDO: 0, REPITENTE: 0, PENDIENTE: 0 };
+  d.estudiantes.forEach(e => {
+    cnt[e.situacion]++;
+    h += '<tr><td>' + e.num + '</td><td class="l" style="white-space:nowrap">' + esc(e.nombre) + '</td>' + as.map(a => { const c = e.registros[a.id].calc; const t = c.A !== null ? c.A + (c.etapa !== 'CF' ? ' ✓' : '') : (c.R !== null ? '<span class="low">' + c.R + ' R</span>' : '<span style="color:#888">…</span>'); return '<td>' + t + '</td>'; }).join('') + '<td><b>' + e.situacion + '</b></td></tr>';
+  });
+  return h + '</tbody></table><p style="font-size:11px"><b>Promovidos:</b> ' + cnt.PROMOVIDO + ' &nbsp; <b>Repitentes:</b> ' + cnt.REPITENTE + ' &nbsp; <b>Pendientes:</b> ' + cnt.PENDIENTE + ' &nbsp; (“…” = aún sin resultado final · ✓ = aprobó en una evaluación final)</p></div>';
+}
+
+/* =====================================================================
+   ASIGNACIÓN DE DOCENTES  (docente + asignatura + curso + sección)
+   Define quién puede modificar qué: el servidor rechaza cualquier guardado fuera de esta tabla.
+   ===================================================================== */
+async function vAsig() {
+  if (!S.curso) return sinCursos();
+  S.asgVista = S.asgVista || 'curso';
+  $('#main').innerHTML = '<h2>Asignación de docentes</h2><div class="msg info">Defina qué docente gestiona cada asignatura en cada curso. Un docente solo podrá ver y guardar las calificaciones y la asistencia de lo que tenga asignado aquí. Si la asignatura se reparte por períodos, use la tabla avanzada.</div>' +
+    '<div class="bar"><label>Vista<div class="seg" id="aVista"><button data-v="curso">Por curso</button><button data-v="doc">Por docente</button></div></label>' +
+    '<span id="aCursoBox">' + cursoSelect('aCurso', S.curso) + '</span>' +
+    '<label id="aTodasBox"><span>Opciones</span><span style="padding:7px 0"><input type="checkbox" id="aTodas"> Aplicar a todas las secciones del grado</span></label>' +
+    '<div class="grow"></div><button class="btn sec" id="aAvz">Tabla avanzada</button>' + (can('asignaciones.crear') ? '<button class="btn sec" id="aCopiar">Copiar desde otro año</button>' : '') + '</div><div id="aBody"></div>';
+  $('#aVista').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.asgVista = b.dataset.v; pintaAsg(); };
+  $('#aCurso').onchange = e => { S.curso = e.target.value; pintaAsg(); };
+  $('#aAvz').onclick = () => go('asignaciones');
+  if ($('#aCopiar')) $('#aCopiar').onclick = modalCopiarAsg;
+  $('#aBody').addEventListener('change', onAsgChange); $('#aBody').addEventListener('click', onAsgClick);
+  cargaAsg();
+}
+async function cargaAsg() {
+  const a = await call('asignaciones.panel', { ano: S.ano });
+  if (S.view !== 'asig') return;
+  if (!a.ok) { $('#aBody').innerHTML = '<div class="msg bad">' + esc(a.error) + '</div>'; return; }
+  S.asg = a.data; pintaAsg();
+}
+function pintaAsg() {
+  if (!S.asg || S.view !== 'asig') return;
+  const cur = S.asgVista === 'curso';
+  $$('#aVista button').forEach(b => b.classList.toggle('on', b.dataset.v === S.asgVista));
+  $('#aCursoBox').classList.toggle('hidden', !cur); $('#aTodasBox').classList.toggle('hidden', !cur);
+  $('#aBody').innerHTML = cur ? asgCurso() : asgDocente();
+  if (!cur) asgCargaAsigsForm();
+}
+function asgCurso() {
+  const c = S.boot.cursos.find(x => x.id === S.curso), D = S.asg.docentes, asigs = (c && S.asg.asignaturasPorGrado[c.grado]) || [];
+  const A = S.asg.asignaciones.filter(x => x.idSeccion === S.curso);
+  if (!asigs.length) return '<div class="card empty">Este grado no tiene asignaturas configuradas.</div>';
+  if (!D.length) return '<div class="msg">No hay docentes activos. Regístrelos en Administración > Docentes.</div>';
+  const info = a => { const l = A.filter(x => x.idAsignatura === a.id); return { l, uno: l.length === 1 && l[0].idPeriodo === '*' ? l[0] : null, varios: l.length > 1 || (l.length === 1 && l[0].idPeriodo !== '*') }; };
+  const con = asigs.filter(a => info(a).l.length).length, editar = S.asg.puedeCrear;
+  return '<div class="kpis"><div class="kpi ' + (con === asigs.length ? 'ok' : 'warn') + '"><b>' + con + ' / ' + asigs.length + '</b><span>Asignaturas con docente en ' + esc(cursoTxt(c)) + '</span></div></div>' +
+    '<div class="tw" style="max-height:none"><table class="t"><thead><tr><th class="l">Asignatura</th><th class="l">Docente asignado</th><th>Estado</th></tr></thead><tbody>' +
+    asigs.map(a => {
+      const i = info(a), x = i.uno;
+      const estado = !i.l.length ? '<span class="chip warn">Sin docente</span>' : i.varios ? '<span class="chip info">Por períodos</span>' : (x.valida ? '<span class="chip ok">Asignada</span>' : '<span class="chip bad">Docente inactivo</span>');
+      const extra = i.varios ? '<option value="__varios" selected disabled>' + esc(i.l.map(y => y.docente + ' (' + y.periodo + ')').join(', ')) + '</option>' : (x && !D.some(d => d.id === x.idDocente) ? '<option value="' + esc(x.idDocente) + '" selected>' + esc(x.docente) + ' (inactivo)</option>' : '');
+      return '<tr><td class="l">' + esc(a.nombre) + '</td><td class="l"><select class="asgSel" data-a="' + esc(a.id) + '"' + (editar ? '' : ' disabled') + ' style="min-width:260px;padding:6px;border:1px solid var(--line);border-radius:6px"><option value="">— Sin docente —</option>' + extra +
+        D.map(d => '<option value="' + esc(d.id) + '"' + (x && d.id === x.idDocente ? ' selected' : '') + '>' + esc(d.nombre) + '</option>').join('') + '</select></td><td>' + estado + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+function asgDocente() {
+  const D = S.asg.docentes, A = S.asg.asignaciones, ids = new Set(D.map(d => d.id));
+  const orden = x => x.curso + ' ' + x.asignatura;
+  const grupo = (nombre, lista, activo) => '<div class="card"><div style="display:flex;justify-content:space-between;gap:8px"><b>' + esc(nombre) + '</b>' +
+    (activo ? '<span class="chip info">' + lista.length + ' asignación(es)</span>' : '<span class="chip bad">Docente inactivo o inexistente</span>') + '</div>' +
+    (lista.length ? '<ul class="list">' + lista.sort((p, q) => orden(p).localeCompare(orden(q))).map(x => '<li><span>' + esc(x.curso) + ' · ' + esc(x.asignatura) + (x.periodo !== 'Todo el año' ? ' <span class="chip info">' + esc(x.periodo) + '</span>' : '') + '</span>' +
+      (S.asg.puedeEditar ? '<button class="btn sec asgQuitar" data-s="' + esc(x.idSeccion) + '" data-a="' + esc(x.idAsignatura) + '">Quitar</button>' : '') + '</li>').join('') + '</ul>' : '<div class="status" style="margin-top:6px">Sin asignaciones: este docente no puede modificar ninguna calificación.</div>') + '</div>';
+  const huerfanas = {}; A.filter(x => !ids.has(x.idDocente)).forEach(x => { (huerfanas[x.docente] = huerfanas[x.docente] || []).push(x); });
+  return (S.asg.puedeCrear ? '<div class="card"><h3 style="margin-top:0">Asignar docente</h3><div class="bar" style="margin-bottom:0"><label>Docente<select id="aFDoc">' + D.map(d => '<option value="' + esc(d.id) + '">' + esc(d.nombre) + '</option>').join('') + '</select></label>' +
+    cursoSelect('aFCurso', S.curso) + '<label>Asignatura<select id="aFAsig"></select></label><button class="btn" id="aFBtn">Asignar</button></div></div>' : '') +
+    D.map(d => grupo(d.nombre + (d.usuario ? '  (' + d.usuario + ')' : ''), A.filter(x => x.idDocente === d.id), true)).join('') + Object.keys(huerfanas).map(n => grupo(n, huerfanas[n], false)).join('');
+}
+function asgCargaAsigsForm() {
+  const sel = $('#aFCurso'), as = $('#aFAsig'); if (!sel || !as) return;
+  const c = S.boot.cursos.find(x => x.id === sel.value), l = (c && S.asg.asignaturasPorGrado[c.grado]) || [];
+  as.innerHTML = l.map(a => '<option value="' + esc(a.id) + '">' + esc(a.nombre) + '</option>').join('');
+}
+async function asgGuardar(idSeccion, idAsignatura, idDocente, todas) {
+  const r = await call('asignaciones.asignar', { ano: S.ano, idSeccion, idAsignatura, idDocente, todasSecciones: !!todas });
+  if (!r.ok) toast(r.error, 'bad'); else toast(r.data.quitado ? 'Docente quitado.' : 'Asignación guardada' + (r.data.aplicadas > 1 ? ' en ' + r.data.aplicadas + ' secciones.' : '.'), 'ok');
+  cargaAsg();
+}
+function onAsgChange(e) {
+  const s = e.target;
+  if (s.matches('select.asgSel')) asgGuardar(S.curso, s.dataset.a, s.value, $('#aTodas').checked);
+  else if (s.id === 'aFCurso') asgCargaAsigsForm();
+}
+function onAsgClick(e) {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.classList.contains('asgQuitar')) {
+    if (!confirm('¿Quitar esta asignación? El docente dejará de poder modificar esa asignatura.')) return;
+    asgGuardar(b.dataset.s, b.dataset.a, '', false);
+  } else if (b.id === 'aFBtn') {
+    const s = $('#aFCurso').value, ida = $('#aFAsig').value, idd = $('#aFDoc').value;
+    if (!ida || !idd) return toast('Seleccione docente, curso y asignatura.', 'bad');
+    const previa = S.asg.asignaciones.find(x => x.idSeccion === s && x.idAsignatura === ida && x.idDocente !== idd);
+    if (previa && !confirm('Esa asignatura ya está asignada a ' + previa.docente + '. ¿Reemplazarla?')) return;
+    asgGuardar(s, ida, idd, false);
+  }
+}
+function modalCopiarAsg() {
+  const otros = S.boot.anos.filter(a => a !== S.ano);
+  if (!otros.length) return toast('No hay otro año escolar del cual copiar.', 'bad');
+  modal('<h3>Copiar asignaciones</h3><p class="status">Se copiarán al año <b>' + esc(S.ano) + '</b> las asignaciones del año que elija, emparejando cursos por grado y sección (los cursos deben existir en el año destino). No se reemplazan las que ya existan.</p><label>Año de origen</label><select id="mAo">' + otros.map(a => '<option>' + esc(a) + '</option>').join('') + '</select>' +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="mOk">Copiar</button></div>');
+  $('#mOk').onclick = async () => {
+    const r = await call('asignaciones.copiar', { anoOrigen: $('#mAo').value, anoDestino: S.ano });
+    if (!r.ok) return toast(r.error, 'bad');
+    closeModal(); toast(r.data.copiadas + ' copiada(s)' + (r.data.omitidas ? ', ' + r.data.omitidas + ' ya existían' : '') + (r.data.sinCurso ? ', ' + r.data.sinCurso + ' sin curso equivalente en ' + S.ano : '') + '.', 'ok'); cargaAsg();
+  };
+}
+
+/* =====================================================================
+   OBSERVACIONES DE ESTUDIANTES
+   ===================================================================== */
+const TIPO_OBS = { ACADEMICA: 'Académica', CONDUCTA: 'Conducta', ASISTENCIA: 'Asistencia', FAMILIA: 'Familia', OTRA: 'Otra' };
+async function vObs() {
+  if (!S.curso) return sinCursos();
+  const O = S.obs = { pagina: 1, q: '', tipo: '', idEst: '', anuladas: false };
+  $('#main').innerHTML = '<h2>Observaciones</h2><div class="bar">' + cursoSelect('oCurso', S.curso) + '<label>Estudiante<select id="oEst"><option value="">Todos</option></select></label>' +
+    '<label>Tipo<select id="oTipo"><option value="">Todos</option>' + Object.keys(TIPO_OBS).map(k => '<option value="' + k + '">' + TIPO_OBS[k] + '</option>').join('') + '</select></label>' +
+    '<label>Buscar<input type="search" id="oQ" placeholder="Texto…"></label><label><span>Ver</span><span style="padding:7px 0"><input type="checkbox" id="oAnul"> incluir anuladas</span></label><div class="grow"></div>' +
+    (can('observaciones.registrar') ? '<button class="btn" id="oNueva">+ Nueva observación</button>' : '') + '</div><div id="oBody"></div>';
+  $('#oCurso').onchange = e => { S.curso = e.target.value; O.idEst = ''; O.pagina = 1; cargaObs(true); };
+  $('#oEst').onchange = e => { O.idEst = e.target.value; O.pagina = 1; cargaObs(); };
+  $('#oTipo').onchange = e => { O.tipo = e.target.value; O.pagina = 1; cargaObs(); };
+  $('#oAnul').onchange = e => { O.anuladas = e.target.checked; O.pagina = 1; cargaObs(); };
+  let tmr; $('#oQ').oninput = e => { clearTimeout(tmr); tmr = setTimeout(() => { O.q = e.target.value; O.pagina = 1; cargaObs(); }, 300); };
+  if ($('#oNueva')) $('#oNueva').onclick = () => modalObs(null);
+  cargaObs(true);
+}
+async function cargaObs(recargaEst) {
+  const O = S.obs, r = await call('observaciones.listar', { ano: S.ano, idSeccion: S.curso, idEstudiante: O.idEst, tipo: O.tipo, q: O.q, pagina: O.pagina, incluirAnuladas: O.anuladas }, !recargaEst);
+  if (S.view !== 'obs') return;
+  const box = $('#oBody'); if (!r.ok) { box.innerHTML = '<div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  O.datos = r.data;
+  if (recargaEst) $('#oEst').innerHTML = '<option value="">Todos</option>' + r.data.estudiantes.map(e => '<option value="' + esc(e.id) + '">' + esc(e.nombre) + '</option>').join('');
+  box.innerHTML = r.data.items.length ? '<div class="tw" style="max-height:none"><table class="t"><thead><tr><th>Fecha</th><th class="l">Estudiante</th><th>Tipo</th><th class="l">Asignatura</th><th class="l">Docente</th><th class="l">Observación</th><th></th></tr></thead><tbody>' +
+    r.data.items.map((x, i) => '<tr' + (x.estado === 'ANULADA' ? ' style="opacity:.55"' : '') + '><td>' + esc(x.fecha) + '</td><td class="l">' + esc(x.estudiante) + '</td><td>' + chip(x.tipo) + '</td><td class="l">' + esc(x.asignatura) + (x.periodo ? ' <span class="chip info">' + esc(x.periodo) + '</span>' : '') + '</td><td class="l">' + esc(x.docente) + '</td>' +
+      '<td class="l" style="white-space:normal;min-width:260px">' + esc(x.texto) + (x.estado === 'ANULADA' ? ' <span class="chip bad">anulada</span>' : '') + '</td><td style="white-space:nowrap">' +
+      (x.puedeEditar && x.estado !== 'ANULADA' ? '<button class="btn sec sm" data-e="' + i + '">Editar</button> <button class="btn sec sm" data-x="' + i + '">Anular</button>' : (x.puedeEditar ? '<button class="btn sec sm" data-r="' + i + '">Restaurar</button>' : '')) + '</td></tr>').join('') + '</tbody></table></div>' + pagerHtml(r.data) :
+    '<div class="card empty">No hay observaciones con estos filtros.</div>';
+  box.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.pg) { O.pagina = +b.dataset.pg; cargaObs(); }
+    else if (b.dataset.e !== undefined) modalObs(O.datos.items[+b.dataset.e]);
+    else if (b.dataset.x !== undefined || b.dataset.r !== undefined) {
+      const x = O.datos.items[+(b.dataset.x !== undefined ? b.dataset.x : b.dataset.r)], anula = b.dataset.x !== undefined;
+      if (!confirm(anula ? '¿Anular esta observación? Quedará registrada como anulada.' : '¿Restaurar esta observación?')) return;
+      const k = await call('observaciones.estado', { id: x.id, estado: anula ? 'ANULADA' : 'ACTIVA' }); if (!k.ok) return toast(k.error, 'bad'); toast(anula ? 'Observación anulada.' : 'Observación restaurada.', 'ok'); cargaObs();
+    }
+  };
+}
+function modalObs(x) {
+  const O = S.obs.datos, edita = !!x, hoy = new Date().toISOString().slice(0, 10);
+  modal('<h3>' + (edita ? 'Editar observación' : 'Nueva observación') + '</h3><label>Estudiante</label><select id="oFE"' + (edita ? ' disabled' : '') + '>' + O.estudiantes.map(e => '<option value="' + esc(e.id) + '"' + ((edita ? x.idEstudiante : S.obs.idEst) === e.id ? ' selected' : '') + '>' + esc(e.nombre) + '</option>').join('') + '</select>' +
+    '<label>Tipo</label><select id="oFT">' + O.tipos.map(t => '<option value="' + t + '"' + (edita && x.tipo === t ? ' selected' : '') + '>' + TIPO_OBS[t] + '</option>').join('') + '</select>' +
+    '<label>Fecha</label><input type="date" id="oFF" value="' + esc(edita ? x.fecha : hoy) + '">' +
+    '<label>Asignatura (opcional)</label><select id="oFA"><option value="">—</option>' + O.asignaturas.map(a => '<option value="' + esc(a.id) + '"' + (edita && x.idAsignatura === a.id ? ' selected' : '') + '>' + esc(a.nombre) + '</option>').join('') + '</select>' +
+    '<label>Período (opcional)</label><select id="oFP"><option value="">—</option>' + O.periodos.map(p => '<option value="' + esc(p.id) + '"' + (edita && x.idPeriodo === p.id ? ' selected' : '') + '>' + esc(p.codigo + ' – ' + p.nombre) + '</option>').join('') + '</select>' +
+    '<label>Observación (máximo 600 caracteres)</label><textarea id="oFX" rows="4" maxlength="600" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px">' + esc(edita ? x.texto : '') + '</textarea>' +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="oOk">Guardar</button></div>');
+  $('#oOk').onclick = async () => {
+    const r = await call('observaciones.guardar', { id: edita ? x.id : '', ano: S.ano, idSeccion: S.curso, idEstudiante: $('#oFE').value, tipo: $('#oFT').value, fecha: $('#oFF').value, idAsignatura: $('#oFA').value, idPeriodo: $('#oFP').value, texto: $('#oFX').value });
+    if (!r.ok) return toast(r.error, 'bad');
+    closeModal(); toast('Observación guardada.', 'ok'); cargaObs();
+  };
+}
+
+/* =====================================================================
+   CONFIGURACIÓN (requiere el permiso configuracion.administrar)
+   ===================================================================== */
+async function vCfg() {
+  const r = await call('config.obtener');
+  if (!r.ok) { $('#main').innerHTML = '<h2>Configuración</h2><div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  S.cfgItems = r.data;
+  $('#main').innerHTML = '<h2>Configuración</h2><div class="msg info">Estos parámetros controlan las reglas de calificación y la seguridad. Al cambiar uno, todos los resultados se recalculan. Haga un respaldo antes (menú SGA de la hoja).</div>' +
+    '<div class="card"><div class="tw" style="max-height:none"><table class="t"><thead><tr><th class="l">Parámetro</th><th>Valor</th><th class="l">Descripción</th></tr></thead><tbody>' +
+    r.data.map((x, i) => '<tr><td class="l"><b>' + esc(x.clave) + '</b></td><td><input class="cf" data-i="' + i + '" value="' + esc(x.valor) + '" style="width:210px;padding:6px;border:1px solid var(--line);border-radius:6px"></td><td class="l" style="white-space:normal">' + esc(x.descripcion) + '</td></tr>').join('') +
+    '</tbody></table></div><div style="margin-top:12px"><button class="btn ok" id="cfgGuardar">Guardar configuración</button></div></div>';
+  $('#cfgGuardar').onclick = async () => {
+    const items = $$('input.cf').map(el => ({ clave: S.cfgItems[+el.dataset.i].clave, valor: el.value }));
+    const g = await call('config.guardar', { items });
+    if (!g.ok) return toast(g.error, 'bad');
+    toast(g.data.cambios + ' parámetro(s) actualizados. Recargue la página para aplicar la nota mínima en pantalla.', 'ok');
+  };
+}
+
+/* =====================================================================
+   ADMINISTRACIÓN GENÉRICA (usuarios, docentes, cursos, asignaturas, competencias, asignaciones, tutorías, períodos)
+   La definición de columnas, campos y permisos viene del servidor (crud.meta): aquí solo se dibuja.
+   ===================================================================== */
+const pagerHtml = d => '<div class="pager"><span>' + d.total + ' registro(s) · página ' + d.pagina + ' de ' + d.paginas + '</span><button class="btn sec" data-pg="' + (d.pagina - 1) + '"' + (d.pagina <= 1 ? ' disabled' : '') + '>◀</button><button class="btn sec" data-pg="' + (d.pagina + 1) + '"' + (d.pagina >= d.paginas ? ' disabled' : '') + '>▶</button></div>';
+const ESTADO_ACCION = { ACTIVO: 'Desactivar', INACTIVO: 'Activar', ACTIVA: 'Desactivar', INACTIVA: 'Activar', ABIERTO: 'Cerrar', CERRADO: 'Reabrir' };
+async function vCrud(mod) {
+  const m = await call('crud.meta', { modulo: mod });
+  if (!m.ok) { $('#main').innerHTML = '<h2>Administración</h2><div class="msg bad">' + esc(m.error) + '</div>'; return; }
+  const M = S.crud = { mod: mod, meta: m.data, pagina: 1, q: '', filtros: {}, datos: null };
+  const filtrosHtml = [];
+  for (const f of M.meta.filtros) {
+    let ops = f.opciones ? f.opciones.map(o => ({ id: o, texto: o })) : ((await call('crud.opciones', { ref: f.ref }, true)).data || []);
+    filtrosHtml.push('<label>' + esc(f.et) + '<select data-f="' + f.k + '"><option value="">Todos</option>' + ops.map(o => '<option value="' + esc(o.id) + '">' + esc(o.texto) + '</option>').join('') + '</select></label>');
+  }
+  const acc = M.meta.acciones.filter(a => a.global);
+  $('#main').innerHTML = '<h2>' + esc(M.meta.titulo) + '</h2>' + (M.meta.ayuda ? '<div class="msg info">' + esc(M.meta.ayuda) + '</div>' : '') +
+    '<div class="bar"><label>Buscar<input type="search" id="kQ" placeholder="Escriba para buscar…"></label>' +
+    (M.meta.conAno ? '<label>Año escolar<select id="kAno">' + S.boot.anos.map(a => '<option' + (a === S.ano ? ' selected' : '') + '>' + esc(a) + '</option>').join('') + '</select></label>' : '') + filtrosHtml.join('') +
+    '<div class="grow"></div>' + acc.map(a => '<button class="btn sec kAcc" data-a="' + a.id + '">' + esc(a.et) + '</button>').join('') + (M.meta.puedeCrear ? '<button class="btn" id="kNuevo">+ Nuevo</button>' : '') + '</div><div id="kBody"></div>';
+  let tmr; $('#kQ').oninput = e => { clearTimeout(tmr); tmr = setTimeout(() => { M.q = e.target.value; M.pagina = 1; cargaCrud(); }, 300); };
+  $$('select[data-f]').forEach(s => s.onchange = e => { M.filtros[s.dataset.f] = s.value; M.pagina = 1; cargaCrud(); });
+  if ($('#kAno')) $('#kAno').onchange = e => { M.pagina = 1; cargaCrud(); };
+  if ($('#kNuevo')) $('#kNuevo').onclick = () => modalCrud(null);
+  $$('.kAcc').forEach(b => b.onclick = () => accionGlobal(b.dataset.a));
+  cargaCrud();
+}
+async function cargaCrud() {
+  const M = S.crud, r = await call('crud.listar', { modulo: M.mod, q: M.q, filtros: M.filtros, pagina: M.pagina, ano: $('#kAno') ? $('#kAno').value : S.ano }, true);
+  if (S.view !== M.mod) return;
+  const box = $('#kBody'); if (!r.ok) { box.innerHTML = '<div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  M.datos = r.data;
+  const mt = M.meta, idk = mt.idKey, hayAcc = mt.puedeEditar || mt.puedeEstado || mt.acciones.some(a => !a.global);
+  box.innerHTML = r.data.items.length ? '<div class="tw" style="max-height:none"><table class="t"><thead><tr>' + mt.columnas.map(c => '<th class="l">' + esc(c[1]) + '</th>').join('') + (hayAcc ? '<th>Acciones</th>' : '') + '</tr></thead><tbody>' +
+    r.data.items.map((o, i) => '<tr>' + mt.columnas.map(c => '<td class="l" style="white-space:normal">' + (c[0] === 'ESTADO' ? chip(o[c[0]]).replace('mut', /^(ACTIV|ABIERTO)/.test(o[c[0]]) ? 'ok' : 'bad') : esc(o[c[0]])) + '</td>').join('') +
+      (hayAcc ? '<td style="white-space:nowrap">' + (mt.puedeEditar ? '<button class="btn sec sm" data-e="' + i + '">Editar</button> ' : '') +
+        (mt.puedeEstado && o.ESTADO ? '<button class="btn sec sm" data-s="' + i + '">' + (ESTADO_ACCION[o.ESTADO] || 'Cambiar estado') + '</button> ' : '') +
+        mt.acciones.filter(a => !a.global).map(a => '<button class="btn sec sm" data-a="' + a.id + '|' + i + '">' + esc(a.et) + '</button>').join(' ') + '</td>' : '') + '</tr>').join('') + '</tbody></table></div>' + pagerHtml(r.data) : '<div class="card empty">No hay registros.</div>';
+  box.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.pg) { M.pagina = +b.dataset.pg; cargaCrud(); }
+    else if (b.dataset.e !== undefined) modalCrud(M.datos.items[+b.dataset.e]);
+    else if (b.dataset.s !== undefined) {
+      const o = M.datos.items[+b.dataset.s], est = mt.estados, nuevo = o.ESTADO === est[0] ? est[1] : est[0];
+      if (!confirm((ESTADO_ACCION[o.ESTADO] || 'Cambiar estado') + ' este registro?')) return;
+      const x = await call('crud.estado', { modulo: M.mod, id: o[idk], estado: nuevo }); if (!x.ok) return toast(x.error, 'bad'); toast('Estado actualizado.', 'ok'); if (M.mod === 'cursos') recargaCursos(); cargaCrud();
+    } else if (b.dataset.a) {
+      const [aid, i] = b.dataset.a.split('|'), o = M.datos.items[+i];
+      if (aid === 'restablecer') {
+        const pin = prompt('Nuevo PIN de 4 dígitos para ' + o.USUARIO + '.\nDéjelo vacío para que el sistema genere uno. Se cerrarán sus sesiones abiertas.');
+        if (pin === null) return;
+        const x = await call('usuarios.restablecer', { id: o[idk], pin: pin.trim() }); if (!x.ok) return toast(x.error, 'bad'); muestraClaveTemporal(x.data.usuario, x.data.claveTemporal);
+      } else if (aid === 'acceso') {
+        let usuario = '';
+        if (!o.USUARIO_TXT) { const u = prompt('Usuario para ' + o.NOMBRE_COMPLETO + '.\nDéjelo vacío para que el sistema lo genere a partir del nombre.'); if (u === null) return; usuario = u.trim().toLowerCase(); }
+        const pin = prompt('PIN de 4 dígitos' + (o.USUARIO_TXT ? ' nuevo' : '') + '.\nDéjelo vacío para que el sistema genere uno.'); if (pin === null) return;
+        const x = await call('docentes.acceso', { id: o[idk], usuario, pin: pin.trim() }); if (!x.ok) return toast(x.error, 'bad');
+        muestraClaveTemporal(x.data.usuario, x.data.pin); cargaCrud();
+      }
+    }
+  };
+}
+async function accionGlobal(id) {
+  if (id === 'duplicar') return modalDuplicarPeriodos();
+  if (id !== 'accesos') return;
+  if (!confirm('Se creará un usuario y un PIN para cada docente activo que todavía no tenga acceso. ¿Continuar?')) return;
+  const r = await call('docentes.accesosMasivo'); if (!r.ok) return toast(r.error, 'bad');
+  const txt = r.data.map(x => x.docente + ' — usuario: ' + x.usuario + ' — PIN: ' + x.pin).join('\n');
+  modal('<h3>Accesos creados (' + r.data.length + ')</h3>' + (r.data.length ? '<div class="msg">Anote o copie esta lista y entregue a cada docente su usuario y PIN. <b>Los PIN no se volverán a mostrar.</b></div><div class="tw" style="max-height:320px"><table class="t"><thead><tr><th class="l">Docente</th><th>Usuario</th><th>PIN</th></tr></thead><tbody>' +
+    r.data.map(x => '<tr><td class="l">' + esc(x.docente) + '</td><td><b>' + esc(x.usuario) + '</b></td><td><b>' + esc(x.pin) + '</b></td></tr>').join('') + '</tbody></table></div>' : '<p>Todos los docentes activos ya tienen acceso.</p>') +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">' + (r.data.length ? '<button class="btn sec" id="acCopy">Copiar lista</button>' : '') + '<button class="btn" onclick="closeModal()">Listo</button></div>');
+  if ($('#acCopy')) $('#acCopy').onclick = () => { try { navigator.clipboard.writeText(txt); toast('Lista copiada.', 'ok'); } catch (e) { toast('No se pudo copiar; anótela a mano.', 'bad'); } };
+  cargaCrud();
+}
+function muestraClaveTemporal(usuario, clave) {
+  modal('<h3>PIN de acceso</h3><p>Usuario: <b>' + esc(usuario) + '</b></p><div class="clave">' + esc(clave) + '</div><div class="msg">Anótelo y entréguelo al usuario: <b>no se volverá a mostrar</b>. Puede cambiarlo desde "PIN" en el menú superior.</div><div style="text-align:right"><button class="btn" onclick="closeModal()">Listo</button></div>');
+}
+async function modalCrud(o) {
+  const M = S.crud, mt = M.meta, edita = !!o;
+  const refs = {};
+  for (const c of mt.campos.filter(c => c.tipo === 'ref')) refs[c.k] = (await call('crud.opciones', { ref: c.ref, ano: edita ? (o.ANO_ESCOLAR || S.ano) : S.ano }, true)).data || [];
+  const campo = c => {
+    const v = edita ? (o[c.k] === undefined ? '' : o[c.k]) : (c.k === 'ANO_ESCOLAR' ? ($('#kAno') ? $('#kAno').value : S.ano) : (c.defecto !== undefined ? c.defecto : ''));
+    const dis = (edita && c.soloCrear) ? ' disabled' : '', id = ' id="f_' + c.k + '"';
+    let inp;
+    if (c.tipo === 'ref') inp = '<select' + id + dis + '><option value="">— Seleccione —</option>' + refs[c.k].map(x => '<option value="' + esc(x.id) + '"' + (String(x.id) === String(v) ? ' selected' : '') + '>' + esc(x.texto) + '</option>').join('') + '</select>';
+    else if (c.tipo === 'enum') inp = '<select' + id + dis + '><option value="">—</option>' + c.opciones.map(x => '<option' + (x === v ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select>';
+    else if (c.tipo === 'si_no') inp = '<select' + id + dis + '><option' + (v !== 'NO' ? ' selected' : '') + '>SI</option><option' + (v === 'NO' ? ' selected' : '') + '>NO</option></select>';
+    else inp = '<input' + id + dis + ' value="' + esc(v) + '"' + (c.tipo === 'num' ? ' inputmode="decimal"' : '') + (c.k === 'SECCION' ? ' maxlength="3" style="text-transform:uppercase"' : '') + (c.k === 'PIN' ? ' maxlength="4" inputmode="numeric" placeholder="Automático"' : '') + '>';
+    return '<label>' + esc(c.et) + (c.req ? ' *' : '') + '</label>' + inp;
+  };
+  modal('<h3>' + (edita ? 'Editar ' : 'Nuevo ') + esc(mt.singular.toLowerCase()) + '</h3>' + mt.campos.map(campo).join('') +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="kOk">Guardar</button></div>');
+  $('#kOk').onclick = async () => {
+    const datos = {}; mt.campos.forEach(c => { const el = $('#f_' + c.k); if (el && !el.disabled) datos[c.k] = c.k === 'SECCION' ? el.value.toUpperCase() : el.value; });
+    const r = await call('crud.guardar', { modulo: M.mod, id: edita ? o[mt.idKey] : '', datos });
+    if (!r.ok) return toast(r.error, 'bad');
+    closeModal();
+    if (r.data && r.data.claveTemporal) muestraClaveTemporal(datos.USUARIO || o.USUARIO, r.data.claveTemporal); else toast('Guardado correctamente.', 'ok');
+    if (M.mod === 'cursos') recargaCursos();
+    cargaCrud();
+  };
+}
+function modalDuplicarPeriodos() {
+  modal('<h3>Copiar períodos a otro año escolar</h3><label>Año de origen</label><input id="dO" value="' + esc(S.ano) + '"><label>Año de destino (AAAA-AAAA)</label><input id="dD" placeholder="2027-2028">' +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="dOk">Copiar</button></div>');
+  $('#dOk').onclick = async () => { const r = await call('periodos.duplicar', { origen: $('#dO').value, destino: $('#dD').value }); if (!r.ok) return toast(r.error, 'bad'); closeModal(); toast(r.data.creados + ' períodos creados.', 'ok'); cargaCrud(); };
+}
+
+/* =====================================================================
+   ROLES Y PERMISOS
+   ===================================================================== */
+async function vRoles() {
+  const r = await call('roles.listar');
+  if (!r.ok) { $('#main').innerHTML = '<h2>Roles y permisos</h2><div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  const d = r.data, mods = [...new Set(d.catalogo.map(p => p.modulo))];
+  $('#main').innerHTML = '<h2>Roles y permisos</h2><div class="msg info">Cada permiso controla una acción concreta. El rol Administrador siempre tiene todos. Al guardar, las sesiones abiertas de ese rol se cierran para aplicar los cambios.</div>' +
+    (d.puedeAdministrar ? '<div class="bar"><div class="grow"></div><button class="btn" id="rNuevo">+ Nuevo rol</button></div>' : '') +
+    d.roles.map(ro => '<div class="card" data-rol="' + esc(ro.id) + '"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><h3 style="margin:0">' + esc(ro.nombre) + ' ' + (ro.sistema ? '<span class="chip info">sistema</span>' : '') + '</h3><div class="status">' + esc(ro.descripcion || '') + ' · ' + ro.usuarios + ' usuario(s)</div></div>' +
+      (d.puedeAdministrar && ro.id !== 'ADMINISTRADOR' ? '<div><button class="btn ok sm" data-g="' + esc(ro.id) + '">Guardar permisos</button></div>' : '') + '</div>' +
+      mods.map(m => '<div class="permgrp"><b>' + esc(m) + '</b>' + d.catalogo.filter(p => p.modulo === m).map(p => '<label title="' + esc(p.descripcion) + '"><input type="checkbox" data-p="' + esc(p.id) + '"' + (ro.permisos.includes(p.id) ? ' checked' : '') + (ro.id === 'ADMINISTRADOR' || !d.puedeAdministrar ? ' disabled' : '') + '>' + esc(p.id.split('.')[1]) + '</label>').join('') + '</div>').join('') + '</div>').join('');
+  $('#main').onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'rNuevo') {
+      modal('<h3>Nuevo rol</h3><label>Nombre</label><input id="nrN"><label>Descripción</label><input id="nrD"><div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="closeModal()">Cancelar</button><button class="btn" id="nrOk">Crear</button></div>');
+      $('#nrOk').onclick = async () => { const x = await call('roles.guardar', { nombre: $('#nrN').value, descripcion: $('#nrD').value, permisos: [] }); if (!x.ok) return toast(x.error, 'bad'); closeModal(); toast('Rol creado. Marque sus permisos y guarde.', 'ok'); vRoles(); };
+    } else if (b.dataset.g) {
+      const card = b.closest('.card'), permisos = $$('input[data-p]:checked', card).map(x => x.dataset.p);
+      const x = await call('roles.guardar', { id: b.dataset.g, permisos }); if (!x.ok) return toast(x.error, 'bad'); toast('Permisos guardados (' + permisos.length + ').', 'ok');
+    }
+  };
+}
+
+/* =====================================================================
+   HISTORIAL (auditoría)
+   ===================================================================== */
+async function vHist() {
+  const H = S.hist = { q: '', modulo: '', pagina: 1 };
+  $('#main').innerHTML = '<h2>Historial de actividad</h2><div class="bar"><label>Buscar<input type="search" id="hQ" placeholder="Usuario, descripción o ID…"></label><label>Módulo<select id="hM"><option value="">Todos</option></select></label></div><div id="hBody"></div>';
+  let tmr; $('#hQ').oninput = e => { clearTimeout(tmr); tmr = setTimeout(() => { H.q = e.target.value; H.pagina = 1; cargaHist(); }, 300); };
+  $('#hM').onchange = e => { H.modulo = e.target.value; H.pagina = 1; cargaHist(); };
+  cargaHist(true);
+}
+async function cargaHist(primera) {
+  const H = S.hist, r = await call('historial.listar', { q: H.q, modulo: H.modulo, pagina: H.pagina }, !primera);
+  if (S.view !== 'hist') return;
+  const box = $('#hBody'); if (!r.ok) { box.innerHTML = '<div class="msg bad">' + esc(r.error) + '</div>'; return; }
+  if (primera) $('#hM').innerHTML += r.data.modulos.map(m => '<option>' + esc(m) + '</option>').join('');
+  box.innerHTML = '<div class="tw" style="max-height:none"><table class="t"><thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Módulo</th><th class="l">Descripción</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
+    r.data.items.map(x => '<tr><td>' + esc(x.FECHA) + '</td><td>' + esc(x.USUARIO) + '</td><td>' + esc(x.ACCION) + '</td><td>' + esc(x.MODULO) + '</td><td class="l" style="white-space:normal">' + esc(x.DESCRIPCION) + '</td><td>' + esc(x.VALOR_ANTERIOR) + '</td><td>' + esc(x.VALOR_NUEVO) + '</td></tr>').join('') + '</tbody></table></div>' + pagerHtml(r.data);
+  box.onclick = e => { const b = e.target.closest('button[data-pg]'); if (b) { H.pagina = +b.dataset.pg; cargaHist(); } };
+}
+
+init();
+</script>

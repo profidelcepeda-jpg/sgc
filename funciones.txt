@@ -1,0 +1,561 @@
+legacy\Assignments.js:6:function usuarioDeDocente_(idDocente) { return todos_(HOJA.USUARIOS).filter(function (u) { return u.ID_DOCENTE === idDocente; })[0] || null; }
+legacy\Assignments.js:8:function usuarioSugerido_(doc, ocupados) {
+legacy\Assignments.js:9:  const limpio = function (t) { return norm_(t).replace(/ /g, ''); };
+legacy\Assignments.js:15:  return cand.filter(function (c) { return c.length >= 3 && !ocupados[c]; })[0] || (base + Date.now());
+legacy\Assignments.js:17:function usuariosOcupados_() { const o = {}; todos_(HOJA.USUARIOS).forEach(function (u) { o[String(u.USUARIO).toLowerCase()] = true; }); return o; }
+legacy\Assignments.js:19:function crearAccesoDocente_(ctx, doc, usuario, pin) {
+legacy\Assignments.js:23:function docenteAcceso_(ctx, p) {
+legacy\Assignments.js:24:  return conBloqueo_(function () {
+legacy\Assignments.js:44:function docentesAccesosMasivo_(ctx) {
+legacy\Assignments.js:46:  return conBloqueo_(function () {
+legacy\Assignments.js:47:    const ocupados = usuariosOcupados_(), con = {}; todos_(HOJA.USUARIOS).forEach(function (u) { if (u.ID_DOCENTE) con[u.ID_DOCENTE] = true; });
+legacy\Assignments.js:49:    activos_(HOJA.DOCENTES).forEach(function (d) {
+legacy\Assignments.js:59:function defDocentes_() {
+legacy\Assignments.js:74:    decorar: function (items) {
+legacy\Assignments.js:75:      const us = {}; todos_(HOJA.USUARIOS).forEach(function (u) { if (u.ID_DOCENTE) us[u.ID_DOCENTE] = u; });
+legacy\Assignments.js:76:      return items.map(function (d) { const u = us[d.ID_DOCENTE]; d.USUARIO_TXT = u ? u.USUARIO : ''; d.ACCESO_TXT = u ? (u.ESTADO === 'ACTIVO' ? 'Activo' : 'Inactivo') : 'Sin acceso'; return d; })
+legacy\Assignments.js:77:        .sort(function (a, b) { return String(a.NOMBRE_COMPLETO).localeCompare(String(b.NOMBRE_COMPLETO)); });
+legacy\Assignments.js:79:    antes: function (o, ctx, nuevo, previo) {
+legacy\Assignments.js:88:    despues: function (ctx, id, o, nuevo) {
+legacy\Assignments.js:93:    despuesEstado: function (ctx, p) {   // desactivar un docente también desactiva su acceso y cierra sus sesiones
+legacy\Assignments.js:101:function defAsignaciones_() {
+legacy\Assignments.js:115:    decorar: function (items) {
+legacy\Assignments.js:116:      const docs = {}; todos_(HOJA.DOCENTES).forEach(function (x) { docs[x.ID_DOCENTE] = nombreDocente_(x); });
+legacy\Assignments.js:117:      const asg = {}; todos_(HOJA.ASIGNATURAS).forEach(function (x) { asg[x.ID_ASIGNATURA] = x.NOMBRE; });
+legacy\Assignments.js:118:      const secs = {}; seccionesIndice_().forEach(function (s) { secs[s.idSeccion] = etiquetaSeccion_(s); });
+legacy\Assignments.js:119:      const per = {}; todos_(HOJA.PERIODOS).forEach(function (x) { per[x.ID_PERIODO] = x.CODIGO; });
+legacy\Assignments.js:120:      return items.map(function (x) { x.DOCENTE_TXT = docs[x.ID_DOCENTE] || ''; x.ASIGNATURA_TXT = asg[x.ID_ASIGNATURA] || ''; x.CURSO_TXT = secs[x.ID_SECCION] || ''; x.PERIODO_TXT = x.ID_PERIODO === '*' || !x.ID_PERIODO ? 'Todo el año' : (per[x.ID_PERIODO] || ''); return x; })
+legacy\Assignments.js:121:        .sort(function (a, b) { return a.CURSO_TXT.localeCompare(b.CURSO_TXT) || a.ASIGNATURA_TXT.localeCompare(b.ASIGNATURA_TXT); });
+legacy\Assignments.js:123:    antes: function (o, ctx, nuevo, previo) {
+legacy\Assignments.js:126:      exigir_(asignaturasDeGrado_(sec.grado).some(function (a) { return a.ID_ASIGNATURA === x.ID_ASIGNATURA; }), 'Esa asignatura no se imparte en ' + sec.grado + '.');
+legacy\Assignments.js:136:function asignacionesActivas_(ano) {
+legacy\Assignments.js:138:  if (!_mem.__asg[ano]) _mem.__asg[ano] = todos_(HOJA.ASIGNACIONES).filter(function (a) { return String(a.ANO_ESCOLAR) === String(ano) && a.ESTADO !== 'INACTIVO'; });
+legacy\Assignments.js:142:function docentesDe_(ano, idSeccion, idAsig) {
+legacy\Assignments.js:144:  asignacionesActivas_(ano).forEach(function (a) {
+legacy\Assignments.js:150:function misAsignaciones_(ctx, ano, idSeccion, idAsig) {
+legacy\Assignments.js:152:  return asignacionesActivas_(ano).filter(function (a) { return a.ID_DOCENTE === ctx.idDocente && a.ID_SECCION === idSeccion && a.ID_ASIGNATURA === idAsig; });
+legacy\Assignments.js:155:function puedeTrabajar_(ctx, ano, idSeccion, idAsig, idPeriodo) {
+legacy\Assignments.js:158:  return mias.some(function (a) { return !a.ID_PERIODO || a.ID_PERIODO === '*' || !idPeriodo || a.ID_PERIODO === idPeriodo; });
+legacy\Assignments.js:161:function seccionesPermitidas_(ctx, ano) {
+legacy\Assignments.js:162:  const todas = seccionesDeAno_(ano).filter(function (s) { return s.estado !== 'INACTIVO'; });
+legacy\Assignments.js:166:  asignacionesActivas_(ano).forEach(function (a) { if (a.ID_DOCENTE === ctx.idDocente) ids[a.ID_SECCION] = true; });
+legacy\Assignments.js:167:  todos_(HOJA.TUTORIAS).forEach(function (t) { if (String(t.ANO_ESCOLAR) === String(ano) && t.ID_DOCENTE === ctx.idDocente && t.ESTADO === 'ACTIVA') ids[t.ID_SECCION] = true; });
+legacy\Assignments.js:168:  return todas.filter(function (s) { return ids[s.idSeccion]; });
+legacy\Assignments.js:170:function exigirSeccion_(ctx, ano, idSeccion) {
+legacy\Assignments.js:173:  exigir_(seccionesPermitidas_(ctx, ano).some(function (x) { return x.idSeccion === idSeccion; }), 'No tiene acceso a este curso.', 'PERMISO');
+legacy\Assignments.js:177:function asignaturasVisibles_(ctx, ano, sec) {
+legacy\Assignments.js:180:  return todas.filter(function (a) { return misAsignaciones_(ctx, ano, sec.idSeccion, a.ID_ASIGNATURA).length > 0; });
+legacy\Assignments.js:184:function panelAsignaciones_(ctx, p) {
+legacy\Assignments.js:187:  const docs = {}; todos_(HOJA.DOCENTES).forEach(function (d) { docs[d.ID_DOCENTE] = d; });
+legacy\Assignments.js:188:  const us = {}; todos_(HOJA.USUARIOS).forEach(function (u) { if (u.ID_DOCENTE) us[u.ID_DOCENTE] = u.USUARIO; });
+legacy\Assignments.js:189:  const asg = {}; todos_(HOJA.ASIGNATURAS).forEach(function (a) { asg[a.ID_ASIGNATURA] = a.NOMBRE; });
+legacy\Assignments.js:190:  const per = {}; todos_(HOJA.PERIODOS).forEach(function (x) { per[x.ID_PERIODO] = x.CODIGO; });
+legacy\Assignments.js:191:  const secs = {}; seccionesIndice_().forEach(function (s) { secs[s.idSeccion] = etiquetaSeccion_(s); });
+legacy\Assignments.js:193:  seccionesDeAno_(ano).forEach(function (s) { if (!porGrado[s.grado]) porGrado[s.grado] = asignaturasDeGrado_(s.grado).map(function (a) { return { id: a.ID_ASIGNATURA, nombre: a.NOMBRE }; }); });
+legacy\Assignments.js:196:    docentes: activos_(HOJA.DOCENTES).map(function (d) { return { id: d.ID_DOCENTE, nombre: nombreDocente_(d), usuario: us[d.ID_DOCENTE] || '' }; }).sort(porNombre_),
+legacy\Assignments.js:197:    asignaciones: asignacionesActivas_(ano).map(function (a) {
+legacy\Assignments.js:206:function porNombre_(a, b) { return a.nombre.localeCompare(b.nombre); }
+legacy\Assignments.js:209:function asignarDocente_(ctx, p) {
+legacy\Assignments.js:212:  exigir_(asignaturasDeGrado_(sec.grado).some(function (a) { return a.ID_ASIGNATURA === ida; }), 'La asignatura no corresponde a ' + sec.grado + '.');
+legacy\Assignments.js:213:  if (idDoc) { exigirPermiso_(ctx, 'asignaciones.crear'); exigir_(activos_(HOJA.DOCENTES).some(function (d) { return d.ID_DOCENTE === idDoc; }), 'El docente no existe o está inactivo.'); }
+legacy\Assignments.js:215:  const destinos = p.todasSecciones ? seccionesDeAno_(ano).filter(function (s) { return s.grado === sec.grado && s.estado !== 'INACTIVO'; }) : [sec];
+legacy\Assignments.js:216:  return conBloqueo_(function () {
+legacy\Assignments.js:218:    destinos.forEach(function (d) {
+legacy\Assignments.js:220:      t.rows.forEach(function (r, i) {
+legacy\Assignments.js:236:function copiarAsignaciones_(ctx, p) {
+legacy\Assignments.js:240:  return conBloqueo_(function () {
+legacy\Assignments.js:242:    const secD = {}; seccionesDeAno_(d).forEach(function (s) { secD[s.grado + '|' + s.seccion] = s; });
+legacy\Assignments.js:243:    const secO = {}; seccionesDeAno_(o).forEach(function (s) { secO[s.idSeccion] = s; });
+legacy\Assignments.js:244:    const perO = periodosAno_(o).porId, perD = {}; periodosAno_(d).lista.forEach(function (x) { perD[x.CODIGO] = x.ID_PERIODO; });
+legacy\Assignments.js:245:    const existe = {}; asignacionesActivas_(d).forEach(function (a) { existe[a.ID_SECCION + '|' + a.ID_ASIGNATURA] = true; });
+legacy\Assignments.js:247:    asignacionesActivas_(o).forEach(function (a) {
+legacy\Auth.js:11:function nuevaSal_() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8); }
+legacy\Auth.js:13:function pimienta_() {
+legacy\Auth.js:20:function hashClave_(clave, sal, version) {
+legacy\Auth.js:28:function verificarClave_(clave, sal, guardado) {
+legacy\Auth.js:33:function pinDebil_(pin) { return /^(\d)\1{3}$/.test(pin) || pin === '1234' || pin === '4321' || pin === '0123'; }
+legacy\Auth.js:34:function claveTemporal_() {
+legacy\Auth.js:43:function validarPoliticaClave_(clave) {
+legacy\Auth.js:48:function guardarCredencial_(idUsuario, clave, debeCambiar) {
+legacy\Auth.js:51:  const i = t.rows.findIndex(function (r) { return r[0] === idUsuario; });
+legacy\Auth.js:58:function permisosPorRol_() {
+legacy\Auth.js:63:  tabla_(HOJA.ROL_PERMISOS).rows.forEach(function (r) { if (r[0]) (m[r[0]] = m[r[0]] || []).push(String(r[1])); });
+legacy\Auth.js:68:function limpiarCachePermisos_() { CacheService.getScriptCache().remove('sga_rp'); delete _mem.__rp; }
+legacy\Auth.js:69:function todosLosPermisos_() { return todos_(HOJA.PERMISOS).map(function (p) { return p.ID_PERMISO; }); }
+legacy\Auth.js:72:function permisosEfectivos_(u) {
+legacy\Auth.js:75:  (permisosPorRol_()[u.ROL] || []).forEach(function (p) { set[p] = true; });
+legacy\Auth.js:76:  String(u.PERMISOS_EXTRA || '').split(',').forEach(function (p) { p = p.trim(); if (p) set[p] = true; });
+legacy\Auth.js:77:  String(u.PERMISOS_DENEGADOS || '').split(',').forEach(function (p) { p = p.trim(); if (p) delete set[p]; });
+legacy\Auth.js:80:function tiene_(ctx, permiso) { return !!ctx && ctx.set[permiso] === true; }
+legacy\Auth.js:81:function exigirPermiso_(ctx, permiso) {
+legacy\Auth.js:85:function contextoDe_(u, debeCambiar) {
+legacy\Auth.js:87:  permisos.forEach(function (p) { set[p] = true; });
+legacy\Auth.js:91:function perfilPublico_(ctx) { return { id: ctx.id, usuario: ctx.usuario, nombre: ctx.nombre, rol: ctx.rol, idDocente: ctx.idDocente, debeCambiar: ctx.debeCambiar }; }
+legacy\Auth.js:94:function bloqueoCache_(usuarioTxt) { return 'fail:' + sha256Hex_(usuarioTxt).slice(0, 24); }
+legacy\Auth.js:96:function login_(usuarioTxt, clave) {
+legacy\Auth.js:107:  const u = todos_(HOJA.USUARIOS).filter(function (x) { return String(x.USUARIO).toLowerCase() === usuarioTxt || String(x.CORREO).toLowerCase() === usuarioTxt; })[0];
+legacy\Auth.js:109:  const ci = u ? tc.rows.findIndex(function (r) { return r[0] === u.ID_USUARIO; }) : -1;
+legacy\Auth.js:122:  const activo = u.ESTADO === 'ACTIVO' && (todos_(HOJA.ROLES).filter(function (r) { return r.ID_ROL === u.ROL && r.ESTADO !== 'INACTIVO'; }).length > 0);
+legacy\Auth.js:124:    conBloqueo_(function () {
+legacy\Auth.js:138:  const token = conBloqueo_(function () {
+legacy\Auth.js:142:    const tu = tabla_(HOJA.USUARIOS), iu = tu.rows.findIndex(function (r) { return r[0] === u.ID_USUARIO; });
+legacy\Auth.js:152:  const ctx = contextoDe_(todos_(HOJA.USUARIOS).filter(function (x) { return x.ID_USUARIO === u.ID_USUARIO; })[0], debeCambiar);
+legacy\Auth.js:156:function crearSesion_(idUsuario) {
+legacy\Auth.js:170:function limpiarSesiones_(sh) {
+legacy\Auth.js:181:function sesionDe_(token) {
+legacy\Auth.js:199:  const u = todos_(HOJA.USUARIOS).filter(function (x) { return x.ID_USUARIO === info.u; })[0];
+legacy\Auth.js:201:  const tc = tabla_(HOJA.CREDENCIALES), cr = tc.rows.find(function (r) { return r[0] === u.ID_USUARIO; });
+legacy\Auth.js:207:function revocarSesiones_(idUsuario) { PropertiesService.getScriptProperties().setProperty('REV_' + idUsuario, String(Date.now())); }
+legacy\Auth.js:209:function cerrarSesion_(ctx) {
+legacy\Auth.js:211:  conBloqueo_(function () {
+legacy\Auth.js:219:function cambiarClave_(ctx, actual, nueva) {
+legacy\Auth.js:220:  const tc = tabla_(HOJA.CREDENCIALES), i = tc.rows.findIndex(function (r) { return r[0] === ctx.id; });
+legacy\Auth.js:225:  conBloqueo_(function () { guardarCredencial_(ctx.id, nueva, false); historial_(ctx.usuario, 'CAMBIAR_CLAVE', 'AUTENTICACION', ctx.id, 'El usuario cambió su PIN'); vaciarHistorial_(); });
+legacy\Code.js:10:function doGet() {
+legacy\Code.js:17:function incluir_(nombre) { return HtmlService.createHtmlOutputFromFile(nombre).getContent(); }
+legacy\Code.js:21:function rutas_() {
+legacy\Code.js:23:    'sesion.bootstrap':        { fn: function (ctx) { return bootstrap_(ctx); }, libre: true },
+legacy\Code.js:24:    'sesion.cerrar':           { fn: function (ctx) { return cerrarSesion_(ctx); }, libre: true },
+legacy\Code.js:25:    'sesion.cambiarClave':     { fn: function (ctx, d) { return cambiarClave_(ctx, d.actual, d.nueva); }, libre: true },
+legacy\Code.js:40:    'estudiantes.buscar':      { fn: function (ctx, d) { return buscarEstudiantes_(ctx, d.q, d.ano); } },
+legacy\Code.js:43:    'crud.meta':               { fn: function (ctx, d) { return crudMeta_(ctx, d.modulo); } },
+legacy\Code.js:44:    'crud.listar':             { fn: function (ctx, d) { return crudListar_(ctx, d.modulo, d); } },
+legacy\Code.js:45:    'crud.guardar':            { fn: function (ctx, d) { return crudGuardar_(ctx, d.modulo, d); } },
+legacy\Code.js:46:    'crud.estado':             { fn: function (ctx, d) { return crudEstado_(ctx, d.modulo, d); } },
+legacy\Code.js:47:    'crud.opciones':           { fn: function (ctx, d) { return opcionesRef_(String(d.ref), d); } },
+legacy\Code.js:50:    'docentes.accesosMasivo':  { fn: function (ctx) { return docentesAccesosMasivo_(ctx); } },
+legacy\Code.js:67:function apiLogin(usuario, clave) {
+legacy\Code.js:75:function apiEjecutar(accion, token, datos) {
+legacy\Code.js:88:function respuestaError_(nombre, e, usuario) {
+legacy\Courses.js:7:function ordenGrado_(g) {
+legacy\Courses.js:8:  const l = String(config_().GRADOS).split(',').map(function (x) { return x.trim(); });
+legacy\Courses.js:13:function seccionesIndice_() {
+legacy\Courses.js:16:  todos_(HOJA.CURSOS).forEach(function (c) { cur[c.ID_CURSO] = c; });
+legacy\Courses.js:18:  todos_(HOJA.SECCIONES).forEach(function (s) {
+legacy\Courses.js:23:  lista.sort(function (a, b) { return ordenGrado_(a.grado) - ordenGrado_(b.grado) || a.seccion.localeCompare(b.seccion); });
+legacy\Courses.js:27:function seccionesDeAno_(ano) { return seccionesIndice_().filter(function (s) { return s.ano === String(ano); }); }
+legacy\Courses.js:28:function seccionPorId_(id) {
+legacy\Courses.js:29:  const s = seccionesIndice_().filter(function (x) { return x.idSeccion === id; })[0];
+legacy\Courses.js:33:function etiquetaSeccion_(s) { return s.grado + ' ' + s.seccion; }
+legacy\Courses.js:37:function periodosAno_(ano) {
+legacy\Courses.js:38:  const lista = todos_(HOJA.PERIODOS).filter(function (p) { return String(p.ANO_ESCOLAR) === String(ano); });
+legacy\Courses.js:39:  const regulares = lista.filter(function (p) { return p.TIPO === 'REGULAR'; }).sort(function (a, b) { return a.ORDEN - b.ORDEN; });
+legacy\Courses.js:41:  lista.forEach(function (p) { porId[p.ID_PERIODO] = p; if (p.TIPO === 'ETAPA') etapas[p.ETAPA] = p; });
+legacy\Courses.js:44:function defPeriodos_() {
+legacy\Courses.js:59:    decorar: function (items) { return items.sort(function (a, b) { return String(b.ANO_ESCOLAR).localeCompare(String(a.ANO_ESCOLAR)) || a.ORDEN - b.ORDEN; }); },
+legacy\Courses.js:60:    antes: function (o, ctx, nuevo, previo) {
+legacy\Courses.js:64:      const meses = String(x.MESES || '').split(',').map(function (m) { return m.trim(); }).filter(Boolean);
+legacy\Courses.js:65:      meses.forEach(function (m) { exigir_(SGA.MESES.indexOf(m) >= 0, 'Mes no válido: ' + m + '. Use: ' + SGA.MESES.join(', ') + '.'); });
+legacy\Courses.js:67:      const otros = todos_(HOJA.PERIODOS).filter(function (p) { return String(p.ANO_ESCOLAR) === String(x.ANO_ESCOLAR) && (!previo || p.ID_PERIODO !== previo.ID_PERIODO); });
+legacy\Courses.js:68:      if (x.TIPO === 'REGULAR') exigir_(otros.filter(function (p) { return p.TIPO === 'REGULAR'; }).length < SGA.PERIODOS_REGULARES, 'Un año escolar tiene como máximo ' + SGA.PERIODOS_REGULARES + ' períodos regulares.');
+legacy\Courses.js:69:      else exigir_(!otros.some(function (p) { return p.ETAPA === x.ETAPA; }), 'Ya existe esa etapa final en el año escolar.');
+legacy\Courses.js:75:function duplicarPeriodos_(ctx, p) {
+legacy\Courses.js:79:  return conBloqueo_(function () {
+legacy\Courses.js:84:    agregarFilas_(t, src.map(function (x) { return filaDe_(t, { ID_PERIODO: nuevoId(), ANO_ESCOLAR: d, CODIGO: x.CODIGO, NOMBRE: x.NOMBRE, TIPO: x.TIPO, ETAPA: x.ETAPA, ORDEN: x.ORDEN, MESES: x.MESES, ESTADO: 'ABIERTO', FECHA_CREACION: ahora, FECHA_MODIFICACION: ahora }); }));
+legacy\Courses.js:92:function defCursos_() {
+legacy\Courses.js:105:    listar: function (ctx, p) {
+legacy\Courses.js:107:      const permitidas = {}; seccionesPermitidas_(ctx, ano).forEach(function (s) { permitidas[s.idSeccion] = true; });
+legacy\Courses.js:108:      const cuenta = {}; todos_(HOJA.INSCRIPCIONES).forEach(function (i) { if (i.ESTADO !== 'RETIRADO') cuenta[i.ID_SECCION] = (cuenta[i.ID_SECCION] || 0) + 1; });
+legacy\Courses.js:109:      const items = seccionesIndice_().filter(function (s) { return s.ano === String(ano) && permitidas[s.idSeccion]; }).map(function (s) {
+legacy\Courses.js:115:    guardar: function (ctx, p) { return guardarCurso_(ctx, p); },
+legacy\Courses.js:116:    estado: function (ctx, p) {
+legacy\Courses.js:117:      return conBloqueo_(function () {
+legacy\Courses.js:118:        const t = tabla_(HOJA.SECCIONES), i = t.rows.findIndex(function (r) { return r[0] === p.id; });
+legacy\Courses.js:128:function guardarCurso_(ctx, p) {
+legacy\Courses.js:130:  return conBloqueo_(function () {
+legacy\Courses.js:133:    if (!nuevo) { sec = seccionesIndice_().filter(function (s) { return s.idSeccion === p.id; })[0]; exigir_(sec, 'La sección no existe.'); }
+legacy\Courses.js:136:    exigir_(!seccionesIndice_().some(function (s) { return s.ano === ano && s.grado === grado && s.seccion === o.SECCION && (!sec || s.idSeccion !== sec.idSeccion); }), 'Ya existe la sección ' + grado + ' ' + o.SECCION + ' en ' + ano + '.');
+legacy\Courses.js:139:      let curso = todos_(HOJA.CURSOS).filter(function (c) { return String(c.ANO_ESCOLAR) === ano && String(c.GRADO) === grado; })[0], idCurso;
+legacy\Courses.js:145:      const i = ts.rows.findIndex(function (r) { return r[0] === p.id; }), f = ts.rows[i].slice();
+legacy\Crud.js:8:function definiciones_() {
+legacy\Crud.js:12:function def_(modulo) {
+legacy\Crud.js:19:function opcionesRef_(ref, p) {
+legacy\Crud.js:22:  if (ref === 'docentes') return activos_(HOJA.DOCENTES).map(function (d) { return { id: d.ID_DOCENTE, texto: nombreDocente_(d) }; }).sort(porTexto_);
+legacy\Crud.js:23:  if (ref === 'roles') return todos_(HOJA.ROLES).filter(function (r) { return r.ESTADO !== 'INACTIVO'; }).map(function (r) { return { id: r.ID_ROL, texto: r.NOMBRE }; });
+legacy\Crud.js:24:  if (ref === 'asignaturas') return activos_(HOJA.ASIGNATURAS).sort(function (a, b) { return (num_(a.ORDEN) || 99) - (num_(b.ORDEN) || 99); }).map(function (a) { return { id: a.ID_ASIGNATURA, texto: a.NOMBRE }; });
+legacy\Crud.js:26:  if (ref === 'secciones') return seccionesDeAno_(ano).filter(function (s) { return s.estado !== 'INACTIVO'; }).map(function (s) { return { id: s.idSeccion, texto: s.grado + ' ' + s.seccion + ' (' + s.ano + ')' }; });
+legacy\Crud.js:27:  if (ref === 'periodos*') return [{ id: '*', texto: 'Todo el año' }].concat(todos_(HOJA.PERIODOS).filter(function (x) { return String(x.ANO_ESCOLAR) === String(ano) && x.TIPO === 'REGULAR'; }).sort(function (a, b) { return a.ORDEN - b.ORDEN; }).map(function (x) { return { id: x.ID_PERIODO, texto: x.CODIGO + ' – ' + x.NOMBRE }; }));
+legacy\Crud.js:28:  if (ref === 'grados') return String(config_().GRADOS).split(',').map(function (g) { return g.trim(); }).filter(Boolean).map(function (g) { return { id: g, texto: g }; });
+legacy\Crud.js:31:function porTexto_(a, b) { return a.texto.localeCompare(b.texto); }
+legacy\Crud.js:32:function nombreDocente_(d) { return limpiar_((d.TITULO ? d.TITULO + ' ' : '') + d.NOMBRE_COMPLETO); }
+legacy\Crud.js:34:function crudMeta_(ctx, modulo) {
+legacy\Crud.js:38:    estados: d.estados || ['ACTIVO', 'INACTIVO'], acciones: (d.acciones || []).filter(function (a) { return tiene_(ctx, a.permiso); }),
+legacy\Crud.js:42:function crudListar_(ctx, modulo, p) {
+legacy\Crud.js:49:  if (d.conAno && p.ano) items = items.filter(function (o) { return String(o.ANO_ESCOLAR) === String(p.ano); });
+legacy\Crud.js:51:  items = items.map(function (o) { const c = Object.assign({}, o); delete c._fila; return c; });
+legacy\Crud.js:54:function crudGuardar_(ctx, modulo, p) {
+legacy\Crud.js:60:  return conBloqueo_(function () {
+legacy\Crud.js:62:    const filaPrevia = nuevo ? -1 : t.rows.findIndex(function (r) { return String(r[0]) === String(p.id); });
+legacy\Crud.js:64:    const previo = nuevo ? null : objetos_(t).filter(function (o) { return String(o[idCol]) === String(p.id); })[0];
+legacy\Crud.js:78:      Object.keys(o).forEach(function (k) { if (t.idx[k] !== undefined) fila[t.idx[k]] = o[k]; });
+legacy\Crud.js:90:function crudCambios_(previo, nuevo) { const c = {}; Object.keys(nuevo).forEach(function (k) { if (previo && String(previo[k]) !== String(nuevo[k])) c[k] = previo[k] + ' → ' + nuevo[k]; }); return c; }
+legacy\Crud.js:93:function crudValidar_(d, entrada, previo, ctx) {
+legacy\Crud.js:95:  d.campos.forEach(function (c) {
+legacy\Crud.js:111:    else if (c.tipo === 'ref') { exigir_(opcionesRef_(c.ref, { ano: entrada.ANO_ESCOLAR }).some(function (x) { return String(x.id) === v; }), et + ' no es válido.'); }
+legacy\Crud.js:119:function crudUnico_(d, o, previo, t) {
+legacy\Crud.js:120:  (d.unico || []).forEach(function (cols) {
+legacy\Crud.js:121:    const clave = function (x) { return cols.map(function (k) { return norm_(x[k]); }).join('|'); };
+legacy\Crud.js:123:    const dup = objetos_(t).some(function (x) {
+legacy\Crud.js:129:function crudEstado_(ctx, modulo, p) {
+legacy\Crud.js:133:  return conBloqueo_(function () {
+legacy\Crud.js:135:    const i = t.rows.findIndex(function (r) { return String(r[0]) === String(p.id); });
+legacy\Database.js:11:function ss_() {
+legacy\Database.js:17:function hoja_(nombre) {
+legacy\Database.js:22:function mapaEncabezados_(headers) { const idx = {}; headers.forEach(function (h, i) { idx[h] = i; }); return idx; }
+legacy\Database.js:25:function tabla_(nombre) {
+legacy\Database.js:29:  const headers = (vals[0] || []).map(function (h) { return String(h).trim(); });
+legacy\Database.js:34:function invalidar_(nombre) { delete _mem[nombre]; }
+legacy\Database.js:35:function invalidarTodo_() { Object.keys(_mem).forEach(function (k) { delete _mem[k]; }); }
+legacy\Database.js:38:function objetos_(t) {
+legacy\Database.js:49:function todos_(nombre) { return objetos_(tabla_(nombre)); }
+legacy\Database.js:50:function activos_(nombre) { return todos_(nombre).filter(function (o) { return !String(o.ESTADO || 'ACTIVO').match(/^(INACTIVO|ELIMINADO)$/i); }); }
+legacy\Database.js:51:function porId_(nombre, id, col) {
+legacy\Database.js:53:  const l = todos_(nombre).filter(function (o) { return String(o[k]) === String(id); });
+legacy\Database.js:61:function leerPorClave_(nombre, colClave, valor, modo) {
+legacy\Database.js:64:  const headers = nCols ? sh.getRange(1, 1, 1, nCols).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
+legacy\Database.js:87:function objetosGrupo_(t) {
+legacy\Database.js:88:  return t.rows.map(function (r, i) { const o = { _fila: t.filas[i] }; t.headers.forEach(function (h, j) { o[h] = fechaTxt_(r[j]); }); return o; });
+legacy\Database.js:92:function escribirFilas_(t, mapa) {
+legacy\Database.js:93:  const filas = Object.keys(mapa).map(Number).sort(function (a, b) { return a - b; });
+legacy\Database.js:104:function agregarFilas_(t, filas) {
+legacy\Database.js:112:function filaDe_(t, obj) { return t.headers.map(function (h) { const v = obj[h]; return v === undefined || v === null ? '' : v; }); }
+legacy\Database.js:115:function generadorId_(nombre) {
+legacy\Database.js:124:  return function () { max++; return pref + '-' + ('000000' + max).slice(-6); };
+legacy\Database.js:128:function conBloqueo_(fn) {
+legacy\Database.js:137:function historial_(usuario, accion, modulo, idRegistro, descripcion, antes, despues) {
+legacy\Database.js:141:function vaciarHistorial_() {
+legacy\Database.js:151:function registrarError_(funcion, e, usuario) {
+legacy\Database.js:160:function convertirCfg_(k, v) {
+legacy\Database.js:165:function config_() {
+legacy\Database.js:170:  CONFIG_DEFECTO.forEach(function (f) { cfg[f[0]] = convertirCfg_(f[0], f[1]); });
+legacy\Database.js:171:  tabla_(HOJA.CONFIG).rows.forEach(function (r) { const k = String(r[0]).trim(); if (k) cfg[k] = convertirCfg_(k, r[1]); });
+legacy\Database.js:176:function limpiarCacheCfg_() { CacheService.getScriptCache().remove('sga_cfg'); delete _mem.__cfg; }
+legacy\Engine.js:8:function camposNotas_() {
+legacy\Engine.js:14:function notasVacias_() { const n = {}; camposNotas_().concat(CAMPOS_ETAPAS).forEach(function (k) { n[k] = null; }); return n; }
+legacy\Engine.js:19:function redondear8_(x) { return Math.round(x * 1e8) / 1e8; }
+legacy\Engine.js:21:function redondearEntero_(x) { return Math.floor(redondear8_(x) + 0.5); }
+legacy\Engine.js:23:function truncar_(x, dec) { const f = Math.pow(10, dec); return Math.floor(redondear8_(x) * f + 1e-9) / f; }
+legacy\Engine.js:26:function calcularNotaEfectiva(p, rp, minimo, usaRec) {
+legacy\Engine.js:34:function calcularPromedioCompetencia(efectivas) {
+legacy\Engine.js:41:function calcularCalificacionFinal(pcReales) {
+legacy\Engine.js:48:function calcularCompletiva(cf, cec, ca) {
+legacy\Engine.js:54:function calcularExtraordinaria(cf, ceex, ca) {
+legacy\Engine.js:68:function calcularRegistro(n, ca) {
+legacy\Engine.js:98:    const real = calcularPromedioCompetencia([0, 1, 2, 3].map(function (p) { return R.efectiva[p][c]; }));
+legacy\Engine.js:141:function determinarSituacionFinal(situaciones, totalAreas) {
+legacy\Engine.js:142:  if (situaciones.some(function (s) { return s === 'NO LOGRADO'; })) return 'REPITENTE';
+legacy\Engine.js:143:  if (situaciones.length === totalAreas && situaciones.every(function (s) { return s === 'LOGRADO'; })) return 'PROMOVIDO';
+legacy\Engine.js:158:function determinarSituacionPortada(situaciones, totalAreas) {
+legacy\Engine.js:161:  const finales = situaciones.every(function (s) { return s === 'LOGRADO' || s === 'NO LOGRADO'; });
+legacy\Engine.js:163:  const n = situaciones.filter(function (s) { return s === 'NO LOGRADO'; }).length;
+legacy\Engine.js:170:function validarNota(valor, cfg) {
+legacy\Engine.js:181:function validarRegistro(n, cambios, ca) {
+legacy\Engine.js:185:  claves.forEach(function (k) {
+legacy\Engine.js:189:  Object.keys(pares).forEach(function (kp) {
+legacy\Grades.js:8:function claveGrupo_(ano, idSeccion, idAsig) { return ano + '|' + idSeccion + '|' + idAsig; }
+legacy\Grades.js:11:function destinoClave_(k, per) {
+legacy\Grades.js:14:  const etapa = Object.keys(CAMPO_ETAPA).filter(function (e) { return CAMPO_ETAPA[e] === k; })[0];
+legacy\Grades.js:19:function notasPorEstudiante_(objs, per) {
+legacy\Grades.js:21:  const idxReg = {}; per.regulares.forEach(function (p, i) { idxReg[p.ID_PERIODO] = i + 1; });
+legacy\Grades.js:22:  objs.forEach(function (o) {
+legacy\Grades.js:30:function exigirPeriodos_(ano) {
+legacy\Grades.js:35:function exigirAsignaturaVisible_(ctx, ano, sec, idAsig) {
+legacy\Grades.js:37:  exigir_(asignaturasVisibles_(ctx, ano, sec).some(function (a) { return a.ID_ASIGNATURA === asig.ID_ASIGNATURA; }), 'No tiene acceso a esta asignatura en este curso.', 'PERMISO');
+legacy\Grades.js:41:function obtenerGrid_(ctx, p) {
+legacy\Grades.js:48:  const filas = est.map(function (e) { const n = notas[e.idEstudiante] || notasVacias_(); return { idEstudiante: e.idEstudiante, num: e.num, nombre: e.nombre, notas: n, calc: calcularRegistro(n, ca) }; });
+legacy\Grades.js:50:  per.regulares.forEach(function (x, i) { cerrados[i + 1] = x.ESTADO === 'CERRADO'; });
+legacy\Grades.js:51:  Object.keys(CAMPO_ETAPA).forEach(function (e) { if (per.etapas[e]) cerrados[CAMPO_ETAPA[e]] = per.etapas[e].ESTADO === 'CERRADO'; });
+legacy\Grades.js:62:function guardarNotas_(ctx, p) {
+legacy\Grades.js:67:  const permitidos = {}; camposNotas_().concat(CAMPOS_ETAPAS).forEach(function (k) { permitidos[k] = true; });
+legacy\Grades.js:70:  return conBloqueo_(function () {
+legacy\Grades.js:71:    const est = {}; estudiantesDeSeccion_(ano, sec.idSeccion, false).forEach(function (e) { est[e.idEstudiante] = e; });
+legacy\Grades.js:74:    objs.forEach(function (o) { porKey[o.ID_ESTUDIANTE + '|' + o.ID_PERIODO] = o; });
+legacy\Grades.js:76:    const asignados = asignacionesActivas_(ano).filter(function (a) { return a.ID_SECCION === sec.idSeccion && a.ID_ASIGNATURA === asig.ID_ASIGNATURA; });
+legacy\Grades.js:77:    const docDe = function (idPeriodo) {
+legacy\Grades.js:78:      const m = asignados.filter(function (a) { return a.ID_DOCENTE === ctx.idDocente && (a.ID_PERIODO === '*' || a.ID_PERIODO === idPeriodo); })[0]
+legacy\Grades.js:79:        || asignados.filter(function (a) { return a.ID_PERIODO === '*' || a.ID_PERIODO === idPeriodo; })[0];
+legacy\Grades.js:84:    (p.filas || []).forEach(function (f) {
+legacy\Grades.js:88:      Object.keys(f.cambios || {}).forEach(function (k) {
+legacy\Grades.js:101:      if (!errF.length) validarRegistro(n, cambios, ca).forEach(function (x) { errF.push(x); });
+legacy\Grades.js:102:      if (errF.length) { errF.forEach(function (x) { errores.push({ idEstudiante: e.idEstudiante, campo: x.campo, mensaje: x.mensaje }); }); return; }
+legacy\Grades.js:105:      Object.keys(cambios).forEach(function (k) {
+legacy\Grades.js:120:    const mapa = {}; Object.keys(actualizar).forEach(function (fila) { mapa[fila] = filaDe_(t, actualizar[fila]); });
+legacy\Grades.js:122:    agregarFilas_(t, nuevas.map(function (o) { return filaDe_(t, o); }));
+legacy\Grades.js:130:function filaResultado_(t, id, ano, idSec, idEst, idAsig, notas, ca) {
+legacy\Grades.js:131:  const r = calcularRegistro(notas, ca), v = function (x) { return x === null || x === undefined ? '' : x; };
+legacy\Grades.js:136:function actualizarResultados_(ano, idSec, idAsig, lista, ca) {
+legacy\Grades.js:139:  const pos = {}; t.rows.forEach(function (r, i) { pos[r[t.idx.ID_ESTUDIANTE]] = { fila: t.filas[i], id: r[0] }; });
+legacy\Grades.js:141:  lista.forEach(function (x) {
+legacy\Grades.js:149:function reconstruirResultados_() {
+legacy\Grades.js:150:  const cfg = config_(), asigs = {}; todos_(HOJA.ASIGNATURAS).forEach(function (a) { asigs[a.ID_ASIGNATURA] = a; });
+legacy\Grades.js:152:  objetos_(tc).forEach(function (o) { (grupos[o.CLAVE_GRUPO] = grupos[o.CLAVE_GRUPO] || []).push(o); });
+legacy\Grades.js:154:  Object.keys(grupos).forEach(function (k) {
+legacy\Grades.js:158:    Object.keys(notas).forEach(function (idEst) { n++; filas.push(filaResultado_(tr, pref + '-' + ('000000' + n).slice(-6), ano, g[0].ID_SECCION, idEst, g[0].ID_ASIGNATURA, notas[idEst], ca)); });
+legacy\Grades.js:168:function obtenerAsistencia_(ctx, p) {
+legacy\Grades.js:172:  t.rows.forEach(function (r) { m[r[t.idx.ID_ESTUDIANTE]] = r; });
+legacy\Grades.js:173:  const est = estudiantesDeSeccion_(ano, sec.idSeccion, false).map(function (e) {
+legacy\Grades.js:175:    SGA.MESES.forEach(function (mes) { meses[mes] = r ? num_(r[t.idx[mes]]) : null; });
+legacy\Grades.js:178:  const periodos = periodosAno_(ano).regulares.map(function (pp) { return { codigo: pp.CODIGO, meses: String(pp.MESES || '').split(',').map(function (m) { return m.trim(); }).filter(Boolean) }; });
+legacy\Grades.js:182:function guardarAsistencia_(ctx, p) {
+legacy\Grades.js:187:  return conBloqueo_(function () {
+legacy\Grades.js:189:    t.rows.forEach(function (r, i) { mapa[r[t.idx.ID_ESTUDIANTE]] = { fila: t.filas[i], v: r }; });
+legacy\Grades.js:190:    const est = {}; estudiantesDeSeccion_(ano, sec.idSeccion, false).forEach(function (e) { est[e.idEstudiante] = e; });
+legacy\Grades.js:192:    (p.filas || []).forEach(function (f) {
+legacy\Grades.js:197:      Object.keys(f.cambios || {}).forEach(function (mes) {
+legacy\Grades.js:215:function resumenAsistencia_(filasEst, t, per) {
+legacy\Grades.js:217:  per.regulares.forEach(function (pp, i) {
+legacy\Grades.js:218:    const vals = [], meses = String(pp.MESES || '').split(',').map(function (m) { return m.trim(); }).filter(Boolean);
+legacy\Grades.js:219:    filasEst.forEach(function (r) { meses.forEach(function (mes) { const v = t.idx[mes] === undefined ? null : num_(r[t.idx[mes]]); if (v !== null) vals.push(v); }); });
+legacy\Grades.js:220:    porP[i + 1] = vals.length ? redondear8_(vals.reduce(function (a, b) { return a + b; }, 0) / vals.length) : null;
+legacy\Grades.js:223:  const conDatos = [1, 2, 3, 4].map(function (p) { return porP[p] === undefined ? null : porP[p]; }).filter(function (x) { return x !== null; });
+legacy\Grades.js:224:  const anual = conDatos.length ? redondear8_(conDatos.reduce(function (a, b) { return a + b; }, 0) / conDatos.length) : null;
+legacy\Observations.js:13:function esTutorDe_(ctx, ano, idSeccion) { const t = tutorDe_(ano, idSeccion); return !!(t && ctx.idDocente && t.ID_DOCENTE === ctx.idDocente); }
+legacy\Observations.js:14:function veTodasObs_(ctx, ano, idSeccion) { return tiene_(ctx, 'cursos.ver_todos') || tiene_(ctx, 'observaciones.administrar') || esTutorDe_(ctx, ano, idSeccion); }
+legacy\Observations.js:15:function esAutorObs_(ctx, o) { return ctx.idDocente ? o.ID_DOCENTE === ctx.idDocente : String(o.CREADO_POR) === ctx.usuario; }
+legacy\Observations.js:16:function puedeEditarObs_(ctx, o) { return tiene_(ctx, 'observaciones.administrar') || (tiene_(ctx, 'observaciones.editar') && esAutorObs_(ctx, o)); }
+legacy\Observations.js:18:function listarObservaciones_(ctx, p) {
+legacy\Observations.js:21:  const estu = estudiantesDeSeccion_(ano, sec.idSeccion, true), enombre = {}; estu.forEach(function (e) { enombre[e.idEstudiante] = e.nombre; });
+legacy\Observations.js:22:  const asg = {}; todos_(HOJA.ASIGNATURAS).forEach(function (a) { asg[a.ID_ASIGNATURA] = a.NOMBRE; });
+legacy\Observations.js:23:  const docs = {}; todos_(HOJA.DOCENTES).forEach(function (d) { docs[d.ID_DOCENTE] = nombreDocente_(d); });
+legacy\Observations.js:25:  let items = objetosGrupo_(leerPorClave_(HOJA.OBSERVACIONES, 'ID_SECCION', sec.idSeccion)).filter(function (o) { return String(o.ANO_ESCOLAR) === String(ano); });
+legacy\Observations.js:26:  if (!todas) items = items.filter(function (o) { return esAutorObs_(ctx, o); });
+legacy\Observations.js:27:  if (p.idEstudiante) items = items.filter(function (o) { return o.ID_ESTUDIANTE === p.idEstudiante; });
+legacy\Observations.js:28:  if (p.tipo) items = items.filter(function (o) { return o.TIPO === p.tipo; });
+legacy\Observations.js:29:  if (!p.incluirAnuladas) items = items.filter(function (o) { return o.ESTADO !== 'ANULADA'; });
+legacy\Observations.js:30:  items = items.map(function (o) {
+legacy\Observations.js:33:  }).sort(function (a, b) { return b._orden.localeCompare(a._orden); });
+legacy\Observations.js:35:  r.items.forEach(function (x) { delete x._orden; });
+legacy\Observations.js:36:  r.estudiantes = estu.map(function (e) { return { id: e.idEstudiante, num: e.num, nombre: e.nombre }; });
+legacy\Observations.js:37:  r.periodos = per.lista.map(function (x) { return { id: x.ID_PERIODO, codigo: x.CODIGO, nombre: x.NOMBRE }; }).sort(function (a, b) { return a.codigo.localeCompare(b.codigo); });
+legacy\Observations.js:38:  r.asignaturas = asignaturasVisibles_(ctx, ano, sec).map(function (a) { return { id: a.ID_ASIGNATURA, nombre: a.NOMBRE }; });
+legacy\Observations.js:44:function guardarObservacion_(ctx, p) {
+legacy\Observations.js:53:  if (idAsig) exigir_(asignaturasDeGrado_(sec.grado).some(function (a) { return a.ID_ASIGNATURA === idAsig; }), 'La asignatura no corresponde a este curso.');
+legacy\Observations.js:55:  return conBloqueo_(function () {
+legacy\Observations.js:58:      exigir_(estudiantesDeSeccion_(ano, sec.idSeccion, false).some(function (e) { return e.idEstudiante === p.idEstudiante; }), 'El estudiante no está inscrito (activo) en este curso.');
+legacy\Observations.js:78:function estadoObservacion_(ctx, p) {
+legacy\Observations.js:81:  return conBloqueo_(function () {
+legacy\Reports.js:6:function cargarCurso_(ano, sec) {
+legacy\Reports.js:11:  objetosGrupo_(leerPorClave_(HOJA.CALIFICACIONES, 'CLAVE_GRUPO', prefijo, 'prefijo')).forEach(function (o) { (porAsig[o.ID_ASIGNATURA] = porAsig[o.ID_ASIGNATURA] || []).push(o); });
+legacy\Reports.js:13:  asigs.forEach(function (a) { notasAsig[a.ID_ASIGNATURA] = notasPorEstudiante_(porAsig[a.ID_ASIGNATURA] || [], per); cas[a.ID_ASIGNATURA] = cfgAsignatura_(cfg, a); });
+legacy\Reports.js:15:  ta.rows.forEach(function (r) { (asisPorEst[r[ta.idx.ID_ESTUDIANTE]] = asisPorEst[r[ta.idx.ID_ESTUDIANTE]] || []).push(r); });
+legacy\Reports.js:21:    asignaturas: asigs.map(function (a) {
+legacy\Reports.js:27:  est.forEach(function (e) {
+legacy\Reports.js:29:    asigs.forEach(function (a) {
+legacy\Reports.js:37:function datosCurso_(ctx, p) {
+legacy\Reports.js:43:function dashboard_(ctx, p) {
+legacy\Reports.js:46:  const prom = function (arr) { const v = arr.filter(function (x) { return x !== null; }); return v.length ? v.reduce(function (a, b) { return a + b; }, 0) / v.length : null; };
+legacy\Reports.js:47:  const porAsig = d.asignaturas.map(function (a) {
+legacy\Reports.js:49:    for (let k = 0; k < 4; k++) fila.periodos.push(prom(d.estudiantes.map(function (e) { return e.registros[a.id].calc.periodos[k].promedio; })));
+legacy\Reports.js:52:  const promEst = d.estudiantes.map(function (e) {
+legacy\Reports.js:53:    const proms = d.asignaturas.map(function (a) { return e.registros[a.id].calc.periodos[per - 1].promedio; });
+legacy\Reports.js:54:    const enRiesgo = d.asignaturas.filter(function (a) { const x = e.registros[a.id].calc.periodos[per - 1].promedio; return x !== null && x < d.min; }).map(function (a) { return a.nombre; });
+legacy\Reports.js:57:  const conProm = promEst.filter(function (x) { return x.promedio !== null; });
+legacy\Reports.js:59:  d.estudiantes.forEach(function (e) {
+legacy\Reports.js:61:    d.asignaturas.forEach(function (a) {
+legacy\Reports.js:69:  conProm.forEach(function (x) { if (x.promedio < 70) dist[0]++; else if (x.promedio < 80) dist[1]++; else if (x.promedio < 90) dist[2]++; else dist[3]++; });
+legacy\Reports.js:71:  d.estudiantes.forEach(function (e) { situ[e.situacion]++; });
+legacy\Reports.js:72:  const algun = function (re) { return d.estudiantes.filter(function (e) { return d.asignaturas.some(function (a) { return re.test(e.registros[a.id].calc.estado); }); }).length; };
+legacy\Reports.js:73:  return { curso: { ano: d.ano, grado: d.grado, seccion: d.seccion }, periodo: per, min: d.min, totalEstudiantes: d.estudiantes.length, promedioGeneral: prom(conProm.map(function (x) { return x.promedio; })),
+legacy\Reports.js:74:    porcentajeAprobando: conProm.length ? conProm.filter(function (x) { return x.promedio >= d.min; }).length / conProm.length : null,
+legacy\Reports.js:75:    enRiesgo: promEst.filter(function (x) { return x.riesgo.length; }).sort(function (a, b) { return b.riesgo.length - a.riesgo.length; }),
+legacy\Reports.js:76:    mejor: conProm.slice().sort(function (a, b) { return b.promedio - a.promedio; }).slice(0, 5), porAsignatura: porAsig, distribucion: dist, situacion: situ,
+legacy\Reports.js:80:function consultaEstudiante_(ctx, p) {
+legacy\Reports.js:83:  const ins = todos_(HOJA.INSCRIPCIONES).filter(function (i) { return i.ID_ESTUDIANTE === p.idEstudiante && String(i.ANO_ESCOLAR) === String(ano); })[0];
+legacy\Reports.js:88:    curso: d, estudiante: d.estudiantes.filter(function (x) { return x.idEstudiante === p.idEstudiante; })[0] };
+legacy\Reports.js:91:function historialAcademico_(ctx, p) {
+legacy\Reports.js:94:  todos_(HOJA.INSCRIPCIONES).filter(function (i) { return i.ID_ESTUDIANTE === p.idEstudiante; }).forEach(function (i) {
+legacy\Reports.js:97:      const e = d.estudiantes.filter(function (x) { return x.idEstudiante === p.idEstudiante; })[0];
+legacy\Reports.js:101:  return out.sort(function (a, b) { return b.ano.localeCompare(a.ano); });
+legacy\Reports.js:104:function listarHistorial_(ctx, p) {
+legacy\Reports.js:110:  if (n > 0) items = sh.getRange(last - n + 1, 1, n, 8).getValues().map(function (r) {
+legacy\Reports.js:114:  r.modulos = Object.keys(ESQUEMA).concat(['AUTENTICACION']).filter(function (x, i, a) { return a.indexOf(x) === i; }).sort();
+legacy\Reports.js:119:function anosDisponibles_() {
+legacy\Reports.js:121:  todos_(HOJA.CURSOS).forEach(function (c) { a[String(c.ANO_ESCOLAR)] = true; });
+legacy\Reports.js:124:function cursosListarLigero_(ctx, p) {
+legacy\Reports.js:126:  if (ctx.idDocente) asignacionesActivas_(ano).forEach(function (a) { if (a.ID_DOCENTE === ctx.idDocente) ensena[a.ID_SECCION] = true; });
+legacy\Reports.js:127:  const lista = seccionesPermitidas_(ctx, ano).map(function (s) { const t = tutorDe_(ano, s.idSeccion); return { id: s.idSeccion, grado: s.grado, seccion: s.seccion, tutor: t ? nombreDocente_(t) : '', ensena: !!ensena[s.idSeccion] }; });
+legacy\Reports.js:128:  if (!tiene_(ctx, 'cursos.ver_todos')) lista.sort(function (a, b) { return (b.ensena ? 1 : 0) - (a.ensena ? 1 : 0); });   // el docente abre directamente en SU curso
+legacy\Reports.js:131:function bootstrap_(ctx) {
+legacy\Reports.js:135:    anos: anosDisponibles_(), grados: String(cfg.GRADOS).split(',').map(function (g) { return g.trim(); }), cursos: ctx.debeCambiar ? [] : cursosListarLigero_(ctx, { ano: cfg.ANO_ESCOLAR }) };
+legacy\Reports.js:137:function asignaturasCurso_(ctx, p) {
+legacy\Reports.js:140:  return asignaturasVisibles_(ctx, ano, sec).map(function (a) {
+legacy\Reports.js:146:function configObtener_(ctx) {
+legacy\Reports.js:148:  return tabla_(HOJA.CONFIG).rows.filter(function (r) { return r[0] !== ''; }).map(function (r) { return { clave: r[0], valor: r[1], descripcion: r[2] }; });
+legacy\Reports.js:150:function configGuardar_(ctx, p) {
+legacy\Reports.js:152:  return conBloqueo_(function () {
+legacy\Reports.js:154:    (p.items || []).forEach(function (x) { nuevos[x.clave] = x.valor; });
+legacy\Reports.js:156:    t.rows.forEach(function (r, i) {
+legacy\Setup.js:7:function exigirDueno_() {
+legacy\Setup.js:13:function aviso_(txt) { Logger.log(txt); try { SpreadsheetApp.getUi().alert(txt); } catch (e) { /* sin interfaz */ } }
+legacy\Setup.js:15:function onOpen() {
+legacy\Setup.js:30:function menuInstalar() { setupSystem(); }
+legacy\Setup.js:31:function menuUrl() { exigirDueno_(); let u = ''; try { u = ScriptApp.getService().getUrl(); } catch (e) { /* */ } aviso_(u ? 'Dirección de la aplicación:\n' + u : 'Aún no la ha publicado: Implementar > Nueva implementación > Aplicación web.'); }
+legacy\Setup.js:35:function menuCorregirOrdenCompetencias() {
+legacy\Setup.js:38:  t.rows.forEach(function (r, i) {
+legacy\Setup.js:48:  conBloqueo_(function () { escribirFilas_(t, mapa); invalidar_(HOJA.COMPETENCIAS); historial_('setup', 'CORREGIR_ORDEN_COMPETENCIAS', 'COMPETENCIAS', '', 'Orden CC-CRP-CEC-CT (' + n + ' filas)'); vaciarHistorial_(); });
+legacy\Setup.js:51:function menuRecalcular() { exigirDueno_(); aviso_('Resultados recalculados: ' + reconstruirResultados_() + ' registros.'); }
+legacy\Setup.js:54:function setupSystem() {
+legacy\Setup.js:76:function crearHojas_(ss) {
+legacy\Setup.js:77:  ORDEN_HOJAS.forEach(function (nombre) {
+legacy\Setup.js:81:    const actuales = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
+legacy\Setup.js:83:    else enc.forEach(function (h) { if (actuales.indexOf(h) < 0) { sh.getRange(1, actuales.length + 1).setValue(h); actuales.push(h); } });
+legacy\Setup.js:87:    actuales.forEach(function (h, i) { if (/^(FECHA|CREADA$|EXPIRA$|ULTIMA_ACTIVIDAD$|BLOQUEADO_HASTA$|ULTIMO_ACCESO$|MATRICULA$|TELEFONO$|SALT$|TOKEN_HASH$|HASH$)/.test(h)) sh.getRange(2, i + 1, Math.max(sh.getMaxRows() - 1, 1), 1).setNumberFormat('@'); });
+legacy\Setup.js:92:function sembrarConfig_() {
+legacy\Setup.js:93:  const t = tabla_(HOJA.CONFIG), existentes = {}; t.rows.forEach(function (r) { existentes[String(r[0])] = true; });
+legacy\Setup.js:94:  const nuevas = CONFIG_DEFECTO.filter(function (f) { return !existentes[f[0]]; }).map(function (f) { return [f[0], f[1], f[2], ahora_()]; });
+legacy\Setup.js:97:function sembrarRoles_() {
+legacy\Setup.js:99:  const rolesEx = {}; tr.rows.forEach(function (r) { rolesEx[r[0]] = true; });
+legacy\Setup.js:100:  agregarFilas_(tr, ROLES_BASE.filter(function (r) { return !rolesEx[r[0]]; }).map(function (r) { return filaDe_(tr, { ID_ROL: r[0], NOMBRE: r[1], DESCRIPCION: r[2], ES_SISTEMA: 'SI', ESTADO: 'ACTIVO', FECHA_CREACION: ahora, FECHA_MODIFICACION: ahora }); }));
+legacy\Setup.js:101:  const permEx = {}; tp.rows.forEach(function (r) { permEx[r[0]] = true; });
+legacy\Setup.js:102:  const pares = {}; trp.rows.forEach(function (r) { pares[r[0] + '|' + r[1]] = true; });
+legacy\Setup.js:104:  PERMISOS_CATALOGO.forEach(function (p) {
+legacy\Setup.js:107:      p[3].split('').forEach(function (l) { if (!pares[mapaRol[l] + '|' + p[0]]) nuevosRP.push([mapaRol[l], p[0]]); });
+legacy\Setup.js:113:function sembrarPeriodos_() {
+legacy\Setup.js:115:  if (objetos_(t).some(function (p) { return String(p.ANO_ESCOLAR) === String(ano); })) return;
+legacy\Setup.js:117:  agregarFilas_(t, PERIODOS_BASE.map(function (p) { return filaDe_(t, { ID_PERIODO: id(), ANO_ESCOLAR: ano, CODIGO: p[0], NOMBRE: p[1], TIPO: p[2], ETAPA: p[3], ORDEN: p[4], MESES: p[5], ESTADO: 'ABIERTO', FECHA_CREACION: ahora, FECHA_MODIFICACION: ahora }); }));
+legacy\Setup.js:121:function crearAdminInicial_() {
+legacy\Setup.js:125:  const usuario = todos_(HOJA.USUARIOS).some(function (u) { return String(u.USUARIO).toLowerCase() === 'admin'; }) ? 'administrador' : 'admin';
+legacy\Setup.js:133:function restablecerClaveAdmin() {
+legacy\Setup.js:138:  conBloqueo_(function () { guardarCredencial_(a.ID_USUARIO, clave, false); revocarSesiones_(a.ID_USUARIO); historial_('setup', 'RESTABLECER_ACCESO', 'USUARIOS', a.ID_USUARIO, 'Restablecido desde el editor'); vaciarHistorial_(); });
+legacy\Setup.js:142:function aplicarValidaciones_(ss) {
+legacy\Setup.js:148:function crearRespaldo() {
+legacy\Setup.js:156:function crearDatosDemo() {
+legacy\Setup.js:158:  exigir_(config_().PERMITIR_DEMO === 'SI' || String(tabla_(HOJA.CONFIG).rows.filter(function (r) { return r[0] === 'PERMITIR_DEMO'; }).map(function (r) { return r[1]; })[0]).toUpperCase() === 'SI', 'Ponga PERMITIR_DEMO = SI en la hoja CONFIG para crear datos de prueba.');
+legacy\Setup.js:161:  const sec = (function () { guardarCurso_({ usuario: 'demo' }, { datos: { ANO_ESCOLAR: ano, GRADO: '1ro', SECCION: 'Z' } }); return seccionesDeAno_(ano).filter(function (s) { return s.seccion === 'Z'; })[0]; })();
+legacy\Setup.js:162:  conBloqueo_(function () { crearEstudiantes_(ctx, ano, sec, ['Demo Uno, Ana', 'Demo Dos, Luis', 'Demo Tres, Rosa'].map(function (n) { return { nombre: n }; })); vaciarHistorial_(); });
+legacy\Students.js:8:function estudiantesDeSeccion_(ano, idSeccion, incluirRetirados) {
+legacy\Students.js:9:  const est = {}; todos_(HOJA.ESTUDIANTES).forEach(function (e) { est[e.ID_ESTUDIANTE] = e; });
+legacy\Students.js:11:  todos_(HOJA.INSCRIPCIONES).forEach(function (i) {
+legacy\Students.js:18:  lista.sort(function (a, b) { return (a.num || 999) - (b.num || 999) || a.nombre.localeCompare(b.nombre); });
+legacy\Students.js:21:function partirNombre_(full) {
+legacy\Students.js:26:function crearEstudiantes_(ctx, ano, sec, items) {
+legacy\Students.js:29:  let num = estudiantesDeSeccion_(ano, sec.idSeccion, true).reduce(function (m, x) { return Math.max(m, x.num); }, 0);
+legacy\Students.js:31:  items.forEach(function (it) {
+legacy\Students.js:42:function nombreEstudiante_(v) { const s = limpiar_(String(v || '').replace(/^["'\s]+|["'\s]+$/g, '').replace(/^\d+\s*[.\-)]\s*/, '')); return s; }
+legacy\Students.js:44:function listarEstudiantes_(ctx, p) {
+legacy\Students.js:49:function guardarEstudiante_(ctx, p) {
+legacy\Students.js:57:  return conBloqueo_(function () {
+legacy\Students.js:60:      const i = te.rows.findIndex(function (r) { return r[0] === p.idEstudiante; });
+legacy\Students.js:62:      exigir_(estudiantesDeSeccion_(ano, sec.idSeccion, true).some(function (e) { return e.idEstudiante === p.idEstudiante; }), 'El estudiante no pertenece a este curso.', 'PERMISO');
+legacy\Students.js:69:    const dupMismo = estudiantesDeSeccion_(ano, sec.idSeccion, true).some(function (e) { return norm_(e.nombre) === norm_(nombre); });
+legacy\Students.js:71:    const dupOtro = todos_(HOJA.ESTUDIANTES).some(function (e) { return norm_(e.NOMBRE_COMPLETO) === norm_(nombre); });
+legacy\Students.js:79:function estadoEstudiante_(ctx, p) {
+legacy\Students.js:82:  return conBloqueo_(function () {
+legacy\Students.js:84:    const i = ti.rows.findIndex(function (r) { return r[ti.idx.ID_ESTUDIANTE] === p.idEstudiante && String(r[ti.idx.ANO_ESCOLAR]) === String(ano); });
+legacy\Students.js:94:function importarEstudiantes_(ctx, p) {
+legacy\Students.js:97:  const nombres = String(p.texto || '').split(/\r?\n/).map(nombreEstudiante_).filter(function (s) { return s.length > 2 && s.length <= 120; });
+legacy\Students.js:100:  return conBloqueo_(function () {
+legacy\Students.js:101:    const ya = {}; estudiantesDeSeccion_(ano, sec.idSeccion, true).forEach(function (e) { ya[norm_(e.nombre)] = true; });
+legacy\Students.js:103:    nombres.forEach(function (n) { if (ya[norm_(n)]) omitidos.push(n); else { ya[norm_(n)] = true; nuevos.push({ nombre: n }); } });
+legacy\Students.js:109:function sincronizarRegistro_(ctx, p) {
+legacy\Students.js:116:  const nombres = vals.map(function (r) { return limpiar_(String(r[0]).trim() + ' ' + String(r[1]).trim()); }).filter(function (s) { return s.length > 2; });
+legacy\Students.js:118:  nombres.forEach(function (n) { setReg[norm_(n)] = true; });
+legacy\Students.js:119:  const faltantes = actuales.filter(function (e) { return e.activo && !setReg[norm_(e.nombre)]; }).map(function (e) { return e.nombre; });
+legacy\Students.js:124:function buscarEstudiantes_(ctx, q, ano) {
+legacy\Students.js:127:  seccionesPermitidas_(ctx, a).forEach(function (s) { permitidas[s.idSeccion] = s; });
+legacy\Students.js:128:  const est = {}; todos_(HOJA.ESTUDIANTES).forEach(function (e) { est[e.ID_ESTUDIANTE] = e; });
+legacy\Students.js:130:  todos_(HOJA.INSCRIPCIONES).forEach(function (i) {
+legacy\Students.js:140:function asignarEstudiante_(ctx, p) {
+legacy\Students.js:143:  return conBloqueo_(function () {
+legacy\Students.js:146:    const i = ti.rows.findIndex(function (r) { return r[ti.idx.ID_ESTUDIANTE] === p.idEstudiante && String(r[ti.idx.ANO_ESCOLAR]) === String(ano); });
+legacy\Students.js:147:    const num = estudiantesDeSeccion_(ano, sec.idSeccion, true).reduce(function (m, x) { return Math.max(m, x.num); }, 0) + 1;
+legacy\Students.js:153:      const tieneNotas = objetosGrupo_(leerPorClave_(HOJA.CALIFICACIONES, 'CLAVE_GRUPO', ano + '|' + antigua + '|', 'prefijo')).some(function (o) { return o.ID_ESTUDIANTE === p.idEstudiante; });
+legacy\Subjects.js:5:function asignaturasDeGrado_(grado) {
+legacy\Subjects.js:6:  return activos_(HOJA.ASIGNATURAS).filter(function (a) {
+legacy\Subjects.js:7:    const g = String(a.GRADOS || '').split(',').map(function (x) { return x.trim(); });
+legacy\Subjects.js:9:  }).sort(function (x, y) { return (num_(x.ORDEN) || 99) - (num_(y.ORDEN) || 99); });
+legacy\Subjects.js:11:function asignaturaPorId_(id) {
+legacy\Subjects.js:17:function competenciasDe_(idAsig) {
+legacy\Subjects.js:19:  todas.forEach(function (c) {
+legacy\Subjects.js:28:function cfgAsignatura_(cfg, a) {
+legacy\Subjects.js:30:  const flag = function (campo, global) { return a && String(a[campo]).trim() !== '' ? (esSi_(a[campo]) && global) : global; };
+legacy\Subjects.js:37:function defAsignaturas_() {
+legacy\Subjects.js:53:    decorar: function (items) { return items.sort(function (a, b) { return (num_(a.ORDEN) || 99) - (num_(b.ORDEN) || 99); }); },
+legacy\Subjects.js:54:    antes: function (o, ctx, nuevo, previo) {
+legacy\Subjects.js:59:      const grados = String(x.GRADOS).split(',').map(function (g) { return g.trim(); }).filter(Boolean), validos = opcionesRef_('grados').map(function (g) { return g.id; });
+legacy\Subjects.js:60:      grados.forEach(function (g) { exigir_(g === '*' || validos.indexOf(g) >= 0, 'Grado no válido: ' + g + '.'); });
+legacy\Subjects.js:66:function defCompetencias_() {
+legacy\Subjects.js:79:    decorar: function (items) { const a = {}; todos_(HOJA.ASIGNATURAS).forEach(function (x) { a[x.ID_ASIGNATURA] = x.NOMBRE; }); return items.map(function (c) { c.ID_ASIGNATURA_TXT = c.ID_ASIGNATURA === '*' ? 'Todas' : (a[c.ID_ASIGNATURA] || ''); return c; }); },
+legacy\Subjects.js:80:    antes: function (o) { if (!o.ORDEN) o.ORDEN = Number(String(o.CODIGO).slice(1)); },
+legacy\Tests.js:6:function casoNotas_(overrides) {
+legacy\Tests.js:9:  Object.keys(overrides || {}).forEach(function (k) { n[k] = overrides[k]; });
+legacy\Tests.js:12:function pruebasLogica() {
+legacy\Tests.js:15:  const t = function (nombre, ok, detalle) { res.push({ nombre: nombre, ok: !!ok, detalle: detalle || '' }); };
+legacy\Tests.js:30:  const todos = function (v) { const o = {}; for (let p = 1; p <= 4; p++) for (let c = 1; c <= 4; c++) o['P' + p + 'C' + c] = v; return o; };
+legacy\Tests.js:82:  const fila = function (o) { const f = new Array(11).fill(''); Object.keys(o).forEach(function (m) { f[idxA[m]] = o[m]; }); return f; };
+legacy\Tests.js:93:function ejecutarPruebas() {
+legacy\Tests.js:96:  const fallos = r.filter(function (x) { return !x.ok; });
+legacy\Tests.js:97:  const txt = r.map(function (x) { return (x.ok ? '✔ ' : '✘ ') + x.nombre + (x.detalle ? ' (' + x.detalle + ')' : ''); }).join('\n');
+legacy\Tests.js:105:function pruebasSeguridad_() {
+legacy\Tests.js:106:  const res = [], t = function (n, ok) { res.push({ nombre: n, ok: !!ok, detalle: '' }); };
+legacy\Tests.js:109:  const rech = function (v) { try { validarPoliticaClave_(v); return false; } catch (e) { return e.name === 'ErrorApp'; } };
+legacy\Tutoring.js:6:function tutorDe_(ano, idSeccion) {
+legacy\Tutoring.js:7:  const t = todos_(HOJA.TUTORIAS).filter(function (x) { return String(x.ANO_ESCOLAR) === String(ano) && x.ID_SECCION === idSeccion && x.ESTADO === 'ACTIVA'; })[0];
+legacy\Tutoring.js:11:function asignarTutor_(ctx, ano, sec, idDocente) {
+legacy\Tutoring.js:13:  const i = t.rows.findIndex(function (r) { return String(r[t.idx.ANO_ESCOLAR]) === String(ano) && r[t.idx.ID_SECCION] === sec.idSeccion && r[t.idx.ESTADO] === 'ACTIVA'; });
+legacy\Tutoring.js:23:function defTutorias_() {
+legacy\Tutoring.js:35:    decorar: function (items) {
+legacy\Tutoring.js:36:      const docs = {}; todos_(HOJA.DOCENTES).forEach(function (x) { docs[x.ID_DOCENTE] = nombreDocente_(x); });
+legacy\Tutoring.js:37:      const secs = {}; seccionesIndice_().forEach(function (s) { secs[s.idSeccion] = etiquetaSeccion_(s); });
+legacy\Tutoring.js:38:      return items.map(function (x) { x.DOCENTE_TXT = docs[x.ID_DOCENTE] || ''; x.CURSO_TXT = secs[x.ID_SECCION] || ''; return x; });
+legacy\Tutoring.js:40:    antes: function (o, ctx, nuevo, previo) {
+legacy\Tutoring.js:45:      if (nuevo) exigir_(!todos_(HOJA.TUTORIAS).some(function (t) { return String(t.ANO_ESCOLAR) === String(x.ANO_ESCOLAR) && t.ID_SECCION === x.ID_SECCION && t.ESTADO === 'ACTIVA'; }), 'Esa sección ya tiene un tutor activo. Edite la tutoría existente para cambiarlo.');
+legacy\Users.js:5:function defUsuarios_() {
+legacy\Users.js:21:    decorar: function (items) {
+legacy\Users.js:22:      const roles = {}; todos_(HOJA.ROLES).forEach(function (r) { roles[r.ID_ROL] = r.NOMBRE; });
+legacy\Users.js:23:      const docs = {}; todos_(HOJA.DOCENTES).forEach(function (x) { docs[x.ID_DOCENTE] = nombreDocente_(x); });
+legacy\Users.js:24:      return items.map(function (u) { u.NOMBRE_COMPLETO = limpiar_(u.NOMBRE + ' ' + (u.APELLIDOS || '')); u.ROL_TXT = roles[u.ROL] || u.ROL; u.DOCENTE_TXT = docs[u.ID_DOCENTE] || ''; return u; });
+legacy\Users.js:29:function permisosValidos_(txt) {
+legacy\Users.js:30:  const lista = String(txt || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+legacy\Users.js:32:  lista.forEach(function (p) { exigir_(todos.indexOf(p) >= 0, 'El permiso "' + p + '" no existe.'); });
+legacy\Users.js:35:function adminsActivos_() { return todos_(HOJA.USUARIOS).filter(function (u) { return u.ROL === 'ADMINISTRADOR' && u.ESTADO === 'ACTIVO'; }); }
+legacy\Users.js:37:function guardarUsuario_(ctx, p) { return conBloqueo_(function () { return guardarUsuarioNL_(ctx, p); }); }
+legacy\Users.js:39:function guardarUsuarioNL_(ctx, p) {
+legacy\Users.js:41:  return (function () {
+legacy\Users.js:43:    const previo = nuevo ? null : objetos_(t).filter(function (o) { return o.ID_USUARIO === p.id; })[0];
+legacy\Users.js:51:    if (o.CORREO) exigir_(!todosU.some(function (x) { return (!previo || x.ID_USUARIO !== previo.ID_USUARIO) && String(x.CORREO).toLowerCase() === o.CORREO; }), 'Ya existe un usuario con ese correo.');
+legacy\Users.js:52:    if (nuevo) exigir_(!todosU.some(function (x) { return String(x.USUARIO).toLowerCase() === o.USUARIO; }), 'Ya existe un usuario con ese nombre de usuario.');
+legacy\Users.js:54:      exigir_(adminsActivos_().some(function (a) { return a.ID_USUARIO !== previo.ID_USUARIO; }), 'No puede quitar el rol al único administrador activo.');
+legacy\Users.js:66:      const i = t.rows.findIndex(function (r) { return r[0] === id; }), fila = t.rows[i].slice();
+legacy\Users.js:67:      Object.keys(o).forEach(function (k) { if (t.idx[k] !== undefined) fila[t.idx[k]] = o[k]; });
+legacy\Users.js:79:function estadoUsuario_(ctx, p) { return conBloqueo_(function () { return estadoUsuarioNL_(ctx, p); }); }
+legacy\Users.js:80:function estadoUsuarioNL_(ctx, p) {
+legacy\Users.js:81:  return (function () {
+legacy\Users.js:82:    const t = tabla_(HOJA.USUARIOS), i = t.rows.findIndex(function (r) { return r[0] === p.id; });
+legacy\Users.js:85:    const u = objetos_(t).filter(function (o) { return o.ID_USUARIO === p.id; })[0];
+legacy\Users.js:88:      if (u.ROL === 'ADMINISTRADOR') exigir_(adminsActivos_().some(function (a) { return a.ID_USUARIO !== u.ID_USUARIO; }), 'No puede desactivar al único administrador activo.');
+legacy\Users.js:98:function restablecerAcceso_(ctx, p) {
+legacy\Users.js:100:  return conBloqueo_(function () {
+legacy\Users.js:101:    const u = todos_(HOJA.USUARIOS).filter(function (o) { return o.ID_USUARIO === p.id; })[0];
+legacy\Users.js:115:function rolesListar_(ctx) {
+legacy\Users.js:118:  todos_(HOJA.USUARIOS).forEach(function (u) { usados[u.ROL] = (usados[u.ROL] || 0) + 1; });
+legacy\Users.js:120:    roles: todos_(HOJA.ROLES).map(function (r) { return { id: r.ID_ROL, nombre: r.NOMBRE, descripcion: r.DESCRIPCION, sistema: esSi_(r.ES_SISTEMA), estado: r.ESTADO, usuarios: usados[r.ID_ROL] || 0,
+legacy\Users.js:122:    catalogo: todos_(HOJA.PERMISOS).map(function (p) { return { id: p.ID_PERMISO, modulo: p.MODULO, descripcion: p.DESCRIPCION }; }),
+legacy\Users.js:127:function rolesGuardar_(ctx, p) {
+legacy\Users.js:129:  return conBloqueo_(function () {
+legacy\Users.js:132:    const perms = (p.permisos || []).filter(function (x, i, a) { return a.indexOf(x) === i; });
+legacy\Users.js:133:    perms.forEach(function (x) { exigir_(validos.indexOf(x) >= 0, 'El permiso "' + x + '" no existe.'); });
+legacy\Users.js:140:      exigir_(!tr.rows.some(function (r) { return r[0] === id; }), 'Ya existe un rol con ese nombre.');
+legacy\Users.js:144:      const i = tr.rows.findIndex(function (r) { return r[0] === id; });
+legacy\Users.js:153:      const resto = tp.rows.filter(function (r) { return r[0] && r[0] !== id; });
+legacy\Users.js:154:      const nuevas = resto.concat(perms.map(function (x) { return [id, x]; }));
+legacy\Users.js:160:    todos_(HOJA.USUARIOS).filter(function (u) { return u.ROL === id; }).forEach(function (u) { revocarSesiones_(u.ID_USUARIO); });   // los permisos nuevos rigen de inmediato
+legacy\Utils.js:10:function ahora_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'); }
+legacy\Utils.js:11:function esSi_(v) { const s = String(v === null || v === undefined ? '' : v).trim().toUpperCase(); return v === true || s === 'SI' || s === 'TRUE' || s === 'SÍ'; }
+legacy\Utils.js:12:function num_(v) {
+legacy\Utils.js:18:function norm_(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+legacy\Utils.js:19:function limpiar_(s) { return String(s === null || s === undefined ? '' : s).replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim(); }
+legacy\Utils.js:21:function fechaTxt_(v) {
+legacy\Utils.js:26:function vacio_(v) { return v === '' || v === null || v === undefined; }
+legacy\Utils.js:29:function exigir_(cond, mensaje, codigo) { if (!cond) throw new ErrorApp(mensaje, codigo); }
+legacy\Utils.js:32:function texto_(v, etiqueta, opc) {
+legacy\Utils.js:40:function correoValido_(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(s || '')); }
+legacy\Utils.js:41:function idValido_(id, prefijo) { return typeof id === 'string' && new RegExp('^' + prefijo + '-\\d{6}$').test(id); }
+legacy\Utils.js:43:function enum_(v, lista, etiqueta) { exigir_(lista.indexOf(v) >= 0, etiqueta + ' no es válido.'); return v; }
+legacy\Utils.js:46:function paginar_(items, p, camposBusqueda) {
+legacy\Utils.js:50:  if (q) lista = lista.filter(function (o) { return camposBusqueda.some(function (c) { return norm_(o[c]).indexOf(q) >= 0; }); });
+legacy\Utils.js:51:  Object.keys(p.filtros || {}).forEach(function (k) {
+legacy\Utils.js:53:    if (v !== '' && v !== null && v !== undefined) lista = lista.filter(function (o) { return String(o[k]) === String(v); });
+legacy\Utils.js:61:function bytesHex_(bytes) { return bytes.map(function (b) { return ('0' + (b < 0 ? b + 256 : b).toString(16)).slice(-2); }).join(''); }
+legacy\Utils.js:62:function sha256Hex_(txt) { return bytesHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(txt), Utilities.Charset.UTF_8)); }
+legacy\Utils.js:63:function iguales_(a, b) { a = String(a); b = String(b); if (a.length !== b.length) return false; let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; }
