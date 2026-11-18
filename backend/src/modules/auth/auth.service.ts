@@ -15,6 +15,7 @@
 
 import { Prisma, User } from '@prisma/client';
 import { prisma } from '../../lib/db';
+import { leerValoresConfig } from '../configuration/configuration.service';
 import { ErrorApp, exigir } from '../../lib/errors';
 import {
   hashBcrypt_, hashClave_, limpiar_, nuevoToken_, sha256Hex_, VERSION_BCRYPT,
@@ -72,12 +73,10 @@ let cfgCache: { valores: CfgSeguridad; expira: number } | null = null;
 async function configValores(): Promise<CfgSeguridad> {
   if (cfgCache && cfgCache.expira > Date.now()) return cfgCache.valores;
   const v: CfgSeguridad = { ...CFG_DEFECTO };
-  const filas = await prisma.config.findMany({
-    where: { clave: { in: Object.keys(CFG_DEFECTO) } }, select: { clave: true, valor: true },
-  });
-  filas.forEach(function (f) {
-    const n = parseInt(f.valor, 10);
-    if (isFinite(n) && n > 0) (v as unknown as Record<string, number>)[f.clave] = n;
+  const config = await leerValoresConfig(Object.keys(CFG_DEFECTO));
+  Object.keys(CFG_DEFECTO).forEach(function (k) {
+    const n = parseInt(config[k], 10);
+    if (isFinite(n) && n > 0) (v as unknown as Record<string, number>)[k] = n;
   });
   cfgCache = { valores: v, expira: Date.now() + 60_000 };
   return v;

@@ -15,6 +15,7 @@ import {
 } from './crud.defs';
 import { OpcionRef, opcionesRef_, configClaves } from './crud.refs';
 import { def_, Definicion, opcionesParaCampos_ } from './crud.modulos';
+import { esModuloAcademico, filtrarAlcanceListado, exigirAlcancePorId, exigirAlcanceRegistro, exigirPermiso as exigirPermisoCentral } from './autorizacion';
 
 interface Delegado {
   findMany: (a?: Record<string, unknown>) => Promise<Array<Record<string, unknown>>>;
@@ -35,7 +36,17 @@ function delegado(d: Definicion): Delegado { return delegadoEn(prisma, d); }
 
 /** exigirPermiso_ del legado. */
 export function exigirPermiso_(ctx: Ctx, permiso: string): void {
-  if (!ctx || ctx.set[permiso] !== true) throw new ErrorApp('No tiene permiso para realizar esta acción.', 'PERMISO');
+  exigirPermisoCentral(ctx, permiso);
+}
+
+function recursoDeHoja_(o: ObjHoja | null): { ano?: string; seccion?: string; docente?: string; asignatura?: string; periodo?: string; estado?: string } {
+  if (!o) return {};
+  const periodo = String(o.ID_PERIODO || '');
+  return {
+    ano: String(o.ANO_ESCOLAR || ''), seccion: String(o.ID_SECCION || ''),
+    docente: String(o.ID_DOCENTE || ''), asignatura: String(o.ID_ASIGNATURA || ''),
+    periodo: periodo && periodo !== '*' ? periodo : undefined, estado: String(o.ESTADO || ''),
+  };
 }
 
 /* ---------------- META (definición para la interfaz) ---------------- */
@@ -48,7 +59,7 @@ export async function crudMeta(ctx: Ctx, modulo: string) {
   const refs = new Set<string>();
   d.campos.forEach(function (c) { if (c.tipo === 'ref') refs.add(c.ref as string); });
   (d.filtros || []).forEach(function (f) { if (f.ref) refs.add(f.ref); });
-  for (const ref of refs) opciones[ref] = await opcionesRef_(ref, cfg.ANO_ESCOLAR);
+  for (const ref of refs) opciones[ref] = await opcionesRef_(ref, cfg.ANO_ESCOLAR, ctx);
   return {
     modulo: modulo, idKey: d.idKey, titulo: d.titulo, singular: d.singular,
     columnas: d.columnas, campos: d.campos, filtros: d.filtros || [], conAno: !!d.conAno,
@@ -72,7 +83,9 @@ export async function crudListar(ctx: Ctx, modulo: string, p: ParamsLista) {
   if (d.listar) return d.listar(ctx, Object.assign({}, p, { tam: tam }));
   const deleg = delegado(d);
   const where: Record<string, unknown> = {};
-  if (d.conAno) where.schoolYearId = String(p.filtro?.ANO_ESCOLAR || cfg.ANO_ESCOLAR);
+  const ano = d.conAno ? String(p.filtro?.ANO_ESCOLAR || cfg.ANO_ESCOLAR) : undefined;
+  if (ano) where.schoolYearId = ano;
+  if (esModuloAcademico(modulo)) Object.assign(where, await filtrarAlcanceListado(ctx, modulo, ano));
   let items = (await deleg.findMany({ where: where })).map(function (r) { return d.dePrisma(r); });
   if (d.decorar) items = await d.decorar(items, ctx);
   return paginar_(items, Object.assign({}, p, { tam: tam }), d.buscar);
@@ -85,16 +98,25 @@ export async function crudGuardar(ctx: Ctx, modulo: string, p: { id?: string; da
   p = p || {};
   const nuevo = !p.id;
   exigirPermiso_(ctx, nuevo ? d.permisos.crear : d.permisos.editar);
-  if (d.guardar) return d.guardar(ctx, p);
+  if (d.guardar) {
+    if (!nuevo && esModuloAcademico(modulo)) await exigirAlcancePorId(ctx, modulo, 'editar', String(p.id));
+    return d.guardar(ctx, p);
+  }
 
   const previoRow = nuevo ? null : await delegado(d).findUnique({ where: { id: String(p.id) } });
   exigir(nuevo || previoRow, 'El registro no existe.');
   const previo = previoRow ? d.dePrisma(previoRow) : null;
+  if (previo && esModuloAcademico(modulo)) {
+    await exigirAlcanceRegistro(ctx, modulo, 'editar', recursoDeHoja_(previo));
+  }
   const validado = crudValidar_(d.campos, p.datos || {}, previo, await opcionesParaCampos_(d, p.datos || {}));
   // Edición parcial: los campos no enviados se conservan (antes se escribían como '').
   // Además deja disponibles los campos soloCrear (año, sección, asignatura) a los ganchos.
   const o = combinarPrevio_(previo, validado);
   if (d.antes) await d.antes(o, ctx, nuevo, previo);
+  if (esModuloAcademico(modulo)) {
+    await exigirAlcanceRegistro(ctx, modulo, nuevo ? 'crear' : 'editar', recursoDeHoja_(o));
+  }
   if (d.unico && d.unico.length) {
     const where: Record<string, unknown> = {};
     if (d.conAno) where.schoolYearId = String(o.ANO_ESCOLAR || (previo && previo.ANO_ESCOLAR) || '');
@@ -139,13 +161,19 @@ export async function crudGuardar(ctx: Ctx, modulo: string, p: { id?: string; da
 export async function crudEstado(ctx: Ctx, modulo: string, id: string, estado: string): Promise<unknown> {
   const d = def_(modulo);
   exigirPermiso_(ctx, d.permisos.estado || d.permisos.editar);
-  if (d.estado) return d.estado(ctx, id, estado);
+  if (d.estado) {
+    if (esModuloAcademico(modulo)) await exigirAlcancePorId(ctx, modulo, 'estado', id);
+    return d.estado(ctx, id, estado);
+  }
   const deleg = delegado(d);
   const previoRow = await deleg.findUnique({ where: { id: id } });
   exigir(previoRow, 'El registro no existe.');
   const est = d.estados || ['ACTIVO', 'INACTIVO'];
   exigir(est.indexOf(estado) >= 0, 'Estado no válido.');
   const previo = d.dePrisma(previoRow);
+  if (esModuloAcademico(modulo)) {
+    await exigirAlcanceRegistro(ctx, modulo, 'estado', recursoDeHoja_(previo));
+  }
   await prisma.$transaction(async function (tx) {
     const deleg = delegadoEn(tx, d);
     await deleg.update({ where: { id: id }, data: { estado: estado, modificado: new Date() } });

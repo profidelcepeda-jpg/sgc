@@ -8,8 +8,17 @@ export interface DefinicionModulo {
 }
 
 export const MODULOS: DefinicionModulo[] = [
+  { id: 'estudiantes', et: 'Estudiantes', sigla: 'ES', permiso: 'estudiantes.ver', desc: 'Matrículas, datos personales y acceso al expediente académico.' },
+  { id: 'consulta', et: 'Consulta', sigla: 'CO', permiso: 'estudiantes.ver', desc: 'Búsqueda de estudiantes y consulta académica dentro del alcance autorizado.' },
+  { id: 'configuracion', et: 'Configuración', sigla: 'CF', permiso: 'configuracion.administrar', desc: 'Parámetros generales, académicos, de reportes y seguridad.' },
+  { id: 'observaciones', et: 'Observaciones', sigla: 'OB', permiso: 'observaciones.ver', desc: 'Registro e historial de observaciones académicas y de conducta.' },
+  { id: 'reportes', et: 'Reportes', sigla: 'RE', permiso: 'reportes.ver', desc: 'Rendimiento, registros, pendientes y boletines académicos.' },
+  { id: 'asistencia', et: 'Asistencia', sigla: 'AS', permiso: 'asistencia.ver', desc: 'Registro diario, historial y resumen de asistencia autorizado.' },
+  { id: 'calificaciones', et: 'Calificaciones', sigla: 'CA', permiso: 'calificaciones.ver', desc: 'Registro de notas y resultados académicos.' },
   { id: 'usuarios', et: 'Usuarios', sigla: 'US', permiso: 'usuarios.ver',
     desc: 'Cuentas, roles, permisos y PIN de acceso.' },
+  { id: 'roles', et: 'Roles y permisos', sigla: 'RP', permiso: 'roles.ver',
+    desc: 'Administrar roles y permisos funcionales del sistema.' },
   { id: 'docentes', et: 'Docentes', sigla: 'DO', permiso: 'docentes.ver',
     desc: 'Registro de docentes y creación de su acceso.' },
   { id: 'asignaturas', et: 'Asignaturas', sigla: 'AS', permiso: 'asignaturas.ver',

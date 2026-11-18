@@ -71,8 +71,8 @@ export function Panel({ ctx, onIr }: Props) {
       <section className="panel-modulos">
         <header className="seccion-cabecera">
           <div>
-            <h3>Mantenimiento</h3>
-            <p>Módulos habilitados para su rol.</p>
+            <h3>Módulos disponibles</h3>
+            <p>Funciones habilitadas para su rol.</p>
           </div>
         </header>
         <div className="rejilla-modulos">

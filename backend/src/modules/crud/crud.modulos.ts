@@ -19,6 +19,7 @@ import {
   Campo, combinarPrevio_, crudValidar_, esSi_, norm_, num_, ObjHoja, paginar_, ParamsLista,
 } from './crud.defs';
 import { configClaves, opcionesRef_, OpcionRef } from './crud.refs';
+import { alcanceGlobal, exigirPermiso, seccionesAlcanzables } from './autorizacion';
 
 /* ---------------- Tipos ---------------- */
 
@@ -211,7 +212,7 @@ async function guardarUsuario_(ctx: Ctx, p: { id?: string; datos?: ObjHoja }): P
     exigir(admins.some(function (a) { return a.id !== previo.ID_USUARIO; }), 'No puede quitar el rol al único administrador activo.');
   }
   if (previo && previo.ID_USUARIO === ctx.id) exigir(o.ROL === previo.ROL, 'No puede cambiar su propio rol.');
-  if (o.ROL === 'ADMINISTRADOR') exigir(ctx.set['roles.administrar'] === true, 'No tiene permiso para realizar esta acción.', 'PERMISO');
+  if (o.ROL === 'ADMINISTRADOR') exigirPermiso(ctx, 'roles.administrar');
 
   const ahora = new Date();
   // Usuario + credencial + auditoría en la MISMA transacción (antes quedaban a medias).
@@ -281,7 +282,7 @@ async function estadoUsuario_(ctx: Ctx, id: string, estado: string): Promise<unk
 
 /** restablecerAcceso_ de Users.js: PIN nuevo (el indicado o generado; se muestra una sola vez) y sesiones cerradas. */
 export async function restablecerAcceso_(ctx: Ctx, id: string, pin: unknown): Promise<Record<string, unknown>> {
-  exigir(ctx.set['usuarios.editar'] === true, 'No tiene permiso para realizar esta acción.', 'PERMISO');
+  exigirPermiso(ctx, 'usuarios.editar');
   const u = await prisma.user.findUnique({ where: { id: id } });
   exigir(u, 'El usuario no existe.');
   const pinTxt = limpiar_(pin);
@@ -348,7 +349,7 @@ function defDocentes(): Definicion {
       o.NOMBRE_COMPLETO = limpiar_(String(x.NOMBRES || '') + ' ' + String(x.APELLIDOS || ''));
       if (nuevo && (o.USUARIO || o.PIN)) {
         exigir(o.USUARIO, 'Para crear el acceso escriba también el usuario.');
-        exigir(ctx.set['usuarios.crear'] === true, 'No tiene permiso para realizar esta acción.', 'PERMISO');
+        exigirPermiso(ctx, 'usuarios.crear');
         if (o.PIN) validarPoliticaClave_(String(o.PIN));
       }
     },
@@ -688,23 +689,11 @@ function defCursos(): Definicion {
     listar: async function (ctx, p) {
       const cfg = await configClaves([]);
       const ano = String(p.filtro?.ANO_ESCOLAR || cfg.ANO_ESCOLAR);
-      // seccionesPermitidas_: todas (cursos.ver_todos) o solo donde enseña o es tutor
-      const todas = await prisma.section.findMany({ where: { estado: { not: 'INACTIVO' }, course: { schoolYearId: ano } }, include: { course: true } });
-      let permitidas: typeof todas;
-      if (ctx.set['cursos.ver_todos'] === true) permitidas = todas;
-      else {
-        if (!ctx.idDocente) permitidas = [];
-        else {
-          const [asigs, tuts] = await Promise.all([
-            prisma.teachingAssignment.findMany({ where: { schoolYearId: ano, teacherId: ctx.idDocente, estado: { not: 'INACTIVO' } } }),
-            prisma.tutoringAssignment.findMany({ where: { schoolYearId: ano, teacherId: ctx.idDocente, estado: 'ACTIVA' } }),
-          ]);
-          const ids = new Set<string>();
-          asigs.forEach(function (a) { ids.add(a.sectionId); });
-          tuts.forEach(function (t) { ids.add(t.sectionId); });
-          permitidas = todas.filter(function (s) { return ids.has(s.id); });
-        }
-      }
+      const ids = alcanceGlobal(ctx, 'cursos') ? null : await seccionesAlcanzables(ctx, ano);
+      const permitidas = await prisma.section.findMany({
+        where: { estado: 'ACTIVO', course: { schoolYearId: ano, estado: 'ACTIVO' }, ...(ids ? { id: { in: ids } } : {}) },
+        include: { course: true },
+      });
       const cuenta: Record<string, number> = {};
       const ins = await prisma.enrollment.findMany({ where: { estado: { not: 'RETIRADO' } }, select: { sectionId: true } });
       ins.forEach(function (i) { cuenta[i.sectionId] = (cuenta[i.sectionId] || 0) + 1; });
@@ -846,7 +835,7 @@ export async function docenteAcceso_(ctx: Ctx, p: { id?: unknown; usuario?: unkn
   const pin = limpiar_(p.pin);
   if (pin) validarPoliticaClave_(pin);
   if (u) {
-    exigir(ctx.set['usuarios.editar'] === true, 'No tiene permiso para realizar esta acción.', 'PERMISO');
+    exigirPermiso(ctx, 'usuarios.editar');
     const nuevoPin = pin || claveTemporal_();
     await prisma.$transaction(async function (tx) {
       await guardarCredencial_(u.id, nuevoPin, false, tx);
@@ -859,7 +848,7 @@ export async function docenteAcceso_(ctx: Ctx, p: { id?: unknown; usuario?: unkn
     await revocarSesiones_(u.id);
     return { usuario: u.usuario, pin: nuevoPin, nuevo: false };
   }
-  exigir(ctx.set['usuarios.crear'] === true, 'No tiene permiso para realizar esta acción.', 'PERMISO');
+  exigirPermiso(ctx, 'usuarios.crear');
   const usuario = limpiar_(p.usuario).toLowerCase() || usuarioSugerido_(doc, await usuariosOcupados_());
   const r = await crearAccesoDocente_(ctx, {
     ID_DOCENTE: doc.id, NOMBRES: doc.nombres, APELLIDOS: doc.apellidos,
@@ -870,7 +859,7 @@ export async function docenteAcceso_(ctx: Ctx, p: { id?: unknown; usuario?: unkn
 
 /** docentesAccesosMasivo_ de Assignments.js: acceso para todos los docentes activos sin usuario. */
 export async function docentesAccesosMasivos_(ctx: Ctx): Promise<{ creados: Array<Record<string, unknown>>; total: number }> {
-  exigir(ctx.set['usuarios.crear'] === true, 'No tiene permiso para realizar esta acción.', 'PERMISO');
+  exigirPermiso(ctx, 'usuarios.crear');
   const [docs, conUsuario, ocupados] = await Promise.all([
     prisma.teacher.findMany({ where: { estado: { not: 'INACTIVO' } }, orderBy: { nombreCompleto: 'asc' } }),
     prisma.user.findMany({ where: { teacherId: { not: null } }, select: { teacherId: true } }),
@@ -897,7 +886,7 @@ export async function docentesAccesosMasivos_(ctx: Ctx): Promise<{ creados: Arra
 
 /** duplicarPeriodos_ de Courses.js: copia los períodos a un año sin períodos. */
 export async function duplicarPeriodos_(ctx: Ctx, p: { origen?: unknown; destino?: unknown }): Promise<Record<string, unknown>> {
-  exigir(ctx.set['periodos.administrar'] === true, 'No tiene permiso para realizar esta acción.', 'PERMISO');
+  exigirPermiso(ctx, 'periodos.administrar');
   const origen = String(limpiar_(p.origen));
   const destino = String(limpiar_(p.destino));
   exigir(origen, 'Escriba el año de origen.');

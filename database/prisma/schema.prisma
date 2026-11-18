@@ -90,6 +90,8 @@ model User {
   teacher     Teacher?     @relation(fields: [teacherId], references: [id])
   sessions    Session[]
   credential  Credential?
+  attendanceSessionsCreated AttendanceSession[] @relation("AttendanceSessionCreatedBy")
+  attendanceSessionsUpdated AttendanceSession[] @relation("AttendanceSessionUpdatedBy")
 
   @@map("users")
 }
@@ -141,6 +143,7 @@ model Teacher {
   user         User?
   assignments  TeachingAssignment[]
   tutorings    TutoringAssignment[]
+  attendanceSessions AttendanceSession[]
   observations Observation[]
   gradeRecords GradeRecord[]
 
@@ -160,6 +163,7 @@ model SchoolYear {
   gradeRecords GradeRecord[]
   results     ResultSummary[]
   attendance  Attendance[]
+  attendanceSessions AttendanceSession[]
   observations Observation[]
 
   @@map("school_years")
@@ -201,6 +205,7 @@ model Section {
   gradeRecords GradeRecord[]
   results      ResultSummary[]
   attendance   Attendance[]
+  attendanceSessions AttendanceSession[]
   observations Observation[]
 
   @@unique([courseId, seccion])
@@ -244,6 +249,7 @@ model Enrollment {
   student    Student    @relation(fields: [studentId], references: [id])
   course     Course     @relation(fields: [courseId], references: [id])
   section    Section    @relation(fields: [sectionId], references: [id])
+  attendanceMarks AttendanceMark[]
 
   @@unique([schoolYearId, sectionId, numLista]) // sin duplicados verificados en datos reales
   @@unique([schoolYearId, studentId]) // un estudiante se inscribe una sola vez por año (pasa de año sin duplicarse)
@@ -478,6 +484,48 @@ model Attendance {
 
   @@unique([schoolYearId, sectionId, subjectId, studentId, mes])
   @@map("attendance")
+}
+
+// Registro diario complementario al porcentaje mensual Legacy.
+// La política inicial admite una sola sesión de asistencia por sección y fecha.
+model AttendanceSession {
+  id             String   @id @default(cuid())
+  schoolYearId   String   @map("school_year_id")
+  sectionId      String   @map("section_id")
+  fecha          DateTime @db.Date
+  teacherId      String   @map("teacher_id")
+  registradoPorId String  @map("registrado_por_id")
+  modificadoPorId String? @map("modificado_por_id")
+  creado         DateTime @default(now())
+  modificado     DateTime @updatedAt
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  section    Section    @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  teacher    Teacher    @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  registradoPor User    @relation("AttendanceSessionCreatedBy", fields: [registradoPorId], references: [id], onDelete: Restrict)
+  modificadoPor User?   @relation("AttendanceSessionUpdatedBy", fields: [modificadoPorId], references: [id], onDelete: Restrict)
+  marks      AttendanceMark[]
+
+  @@unique([schoolYearId, sectionId, fecha])
+  @@index([schoolYearId, fecha])
+  @@map("attendance_sessions")
+}
+
+model AttendanceMark {
+  id           String   @id @default(cuid())
+  sessionId    String   @map("session_id")
+  enrollmentId String   @map("enrollment_id")
+  estado       String   // PRESENTE | AUSENTE | TARDANZA | EXCUSADO
+  observacion  String?  @db.VarChar(300)
+  creado       DateTime @default(now())
+  modificado   DateTime @updatedAt
+
+  session    AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  enrollment Enrollment       @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+
+  @@unique([sessionId, enrollmentId])
+  @@index([enrollmentId, sessionId])
+  @@map("attendance_marks")
 }
 
 model Observation {

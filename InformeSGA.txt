@@ -1,0 +1,162 @@
+# Informe de auditoría integral del SGA
+
+No implementé reorganizaciones ni cambios de código fuente. El repositorio ya tenía trabajo local sin confirmar antes de esta auditoría; lo conservé. Las compilaciones regeneraron artefactos ignorados en dist; restauré el tsbuildinfo rastreado que la compilación modificó.
+
+## 1. Estado general y Git
+
+El proyecto está en la rama master, con el commit 2af00fb como punto de partida. El árbol de trabajo no está limpio: hay modificaciones y archivos nuevos de autenticación, CRUD, calificaciones, estudiantes, observaciones, reportes, configuración, consulta, seguridad y asistencia. Ese commit no contiene esos cambios locales, por lo que no sirve como respaldo de ellos.
+
+No encontré copias idénticas por hash entre los archivos de backend, frontend, database/Prisma, Legacy y docs que comparé. Sí hay responsabilidades solapadas. shared existe, pero está vacío.
+
+## 2. Medición del tamaño
+
+Medición recursiva en disco; las cifras incluyen dependencias anidadas en cada carpeta. Las filas de áreas mayores incluyen sus node_modules.
+
+| Área | Tamaño actual |
+|---|---:|
+| Proyecto completo | 929,7 MB |
+| Backend | 380,17 MB |
+| Frontend | 112,12 MB |
+| Database | 335,46 MB |
+| node_modules raíz | 100,71 MB |
+| node_modules backend | 379,37 MB |
+| node_modules frontend | 111,46 MB |
+| node_modules database | 332,61 MB |
+| Legacy | 0,34 MB |
+| Docs | 0,21 MB |
+| Shared | 0 MB |
+| .git | 0,59 MB |
+
+Los cuatro árboles node_modules suman 924,15 MB, cerca del 99,4 % del proyecto. Los principales paquetes repetidos son Prisma Client, Prisma CLI, Prisma Engines y effect entre backend y database. También hay un node_modules raíz separado. Dentro de las dependencias medí unos 61,16 MB de cachés: .cache en backend y database, y .vite en frontend.
+
+### Build de producción
+
+| Medición | Actual | Potencial |
+|---|---:|---:|
+| Frontend compilado en disco | 0,363 MB | Aproximadamente 0,34–0,36 MB |
+| JavaScript generado | 334,34 KB (94,11 KB gzip) | La carga diferida reduciría el paquete inicial, no necesariamente el total |
+| CSS generado | 31,18 KB (6,51 KB gzip) | Ahorro total pequeño |
+| Backend dist | 0,351 MB | Sin ahorro relevante esperado |
+
+El ahorro estimado en disco no es una cifra garantizada: una consolidación de dependencias en workspaces podría ahorrar aproximadamente 60–330 MB, principalmente al limpiar cachés y deduplicar instalaciones compartidas. El resultado debe medirse tras una instalación reproducible. No recomiendo reducir el build React antes de perfilarlo: actualmente su salida total es pequeña.
+
+El seed rastreado sga-seed.json (/C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/database/seeds/sga-seed.json) ocupa 2,68 MB y contiene registros académicos personales: 273 estudiantes, 2.482 calificaciones, observaciones y auditoría histórica. Está bajo control de versiones. No imprimí ningún valor personal. No detecté campos de contraseña, PIN o hash en los registros de usuarios del seed. Dado que la documentación describe datos reales, debe tratarse como riesgo P0 de privacidad hasta confirmar autorización y anonimización; no lo eliminé ni modifiqué.
+
+database/.env existe, está ignorado por Git y no aparece rastreado. No expuse su contenido.
+
+## 3. Arquitectura y módulos
+
+El backend tiene una base modular en backend/src/modules, pero mezcla patrones: algunas áreas tienen controller/service, otras enrutan directamente al servicio. crud.modulos.ts (/C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/backend/src/modules/crud/crud.modulos.ts) concentra definiciones y lógica específica de usuarios, docentes, asignaturas, competencias, asignaciones, tutorías, períodos y cursos.
+
+Frontend agrupa varias pantallas en componentes, y App.tsx (/C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/frontend/src/App.tsx) carga estáticamente todas las vistas y selecciona el módulo mediante estado y condicionales. No hay rutas URL ni carga diferida de pantallas. Los tipos API se mantienen en frontend, sin contratos compartidos con backend.
+
+| Área solicitada | Estado observado |
+|---|---|
+| Dashboard | Panel |
+| Usuarios | CRUD genérico, asignación de roles y acciones de acceso |
+| Roles y permisos | Servicio y rutas de seguridad separados |
+| Estudiantes y matrícula | Módulo de estudiantes; la matrícula está integrada en él |
+| Cursos/secciones, asignaturas, docentes, asignaciones | CRUD genérico |
+| Calificaciones | Motor y pruebas Golden |
+| Asistencia | Modelo mensual Legacy y módulo diario nuevo |
+| Observaciones | Servicio y rutas propios |
+| Consultas | Orquestación de estudiantes y servicios existentes |
+| Reportes | Servicio que reutiliza el motor de calificaciones |
+| Configuración | Servicio y rutas propios; ciertos datos académicos también se administran por CRUD |
+| Auditoría | Se registran eventos, pero no encontré un módulo de interfaz dedicado |
+
+La organización actual no es enteramente duplicada, pero sí hay límites que aclarar: administración de roles frente a asignación de roles desde Usuarios; configuración frente a CRUD de períodos; y las vistas de Consulta/Reportes que consumen servicios académicos existentes. No recomiendo borrar ninguno de esos componentes sin mapear primero sus rutas y permisos.
+
+## 4. Dependencias y archivos grandes
+
+npm ls --depth=0 terminó correctamente en los cuatro proyectos. Detecté:
+
+- El paquete raíz instala otra copia de React, Vite y tipos, aunque no tiene scripts útiles de compilación.
+- backend/package.json incluye zod, pero no encontré importaciones de Zod en el código revisado; es candidato a retirar solo después de verificar dependencias indirectas y pruebas.
+- database repite Prisma y @prisma/client ya declarados por backend; usa exceljs en database/scripts/importar-excel.js, así que no es candidato a retiro.
+- Los cuatro proyectos tienen manifests/lockfiles independientes; no usan workspaces.
+- El script test del paquete raíz y el de database son marcadores sin pruebas.
+
+Archivos destacados por tamaño o concentración de responsabilidades:
+
+- crud.modulos.ts (/C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/backend/src/modules/crud/crud.modulos.ts): 871 líneas.
+- index.css (/C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/frontend/src/index.css): 843 líneas.
+- ModuloCrud.tsx (/C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/frontend/src/componentes/ModuloCrud.tsx): 586 líneas.
+- schema.prisma (/C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/database/prisma/schema.prisma): 513 líneas.
+- legacy/JavaScript.html: 1.171 líneas; conservarlo es importante para la compatibilidad Legacy.
+
+## 5. Errores, pruebas e integración
+
+| Validación | Resultado |
+|---|---|
+| TypeScript / backend | npm run build: correcto |
+| TypeScript / frontend | npm run build: correcto |
+| ESLint frontend | Correcto, sin errores ni advertencias |
+| Pruebas backend | 120 aprobadas, 12 archivos |
+| Golden Tests | Incluidos en la suite; aprobados |
+| Prisma | Esquema validado |
+| API | /api/health respondió HTTP 200 |
+| PostgreSQL | Consulta de solo lectura SELECT 1: correcta |
+| npm test raíz/database | Falla por scripts placeholder no test specified |
+
+prisma migrate status encontró una migración pendiente, 20261118110000_daily_attendance. No ejecuté migraciones. Por tanto, el código que depende de las tablas nuevas de asistencia diaria no está listo para usarse contra la base actual hasta que se aplique esa migración en un despliegue autorizado.
+
+Riesgo P1: /api/health/db devuelve el mensaje crudo de error de Prisma al cliente si falla la conexión. Conviene cambiarlo por un mensaje genérico y conservar el detalle únicamente en logs controlados.
+
+No detecté errores actuales de compilación o de la suite backend. El smoke test solo valida la respuesta de salud; no sustituye pruebas HTTP de rutas protegidas. server.ts crea y escucha el servidor al importarse, lo que dificulta probar la API como aplicación aislada.
+
+## 6. Organización recomendada
+
+Mantendría el monolito modular existente y haría una normalización gradual, no una reescritura:
+
+- Backend: un patrón coherente de routes → controller → service, middleware y validaciones; extraer partes del CRUD por dominio conservando el motor genérico.
+- Frontend: rutas de módulos y carga diferida; separar pantallas, componentes reutilizables y clientes API sin duplicar lógica de dominio.
+- Database: esquema, migraciones y scripts existentes; unificar instalación/lockfiles mediante workspaces solo tras probarlo en una rama aislada.
+- Shared: definir contratos API compartidos únicamente si se puede mantener el tipado en ambos compiladores sin introducir complejidad adicional.
+
+## 7. Plan priorizado
+
+| Etapa | Trabajo y archivos principales | Riesgos / criterio de cierre |
+|---|---|---|
+| 1. Auditoría y resguardo | Confirmar contenido y tratamiento del seed; checkpoint de los cambios locales | No avanzar con datos sensibles sin decisión; árbol local respaldado |
+| 2. Estructura | backend/src/server.ts, App.tsx, crud.modulos.ts, componentes y contratos | Mantener rutas, permisos y funcionalidades; builds y Golden Tests iguales |
+| 3. Duplicaciones | CRUD, asignación de roles, períodos/configuración, consultas/reportes | Pruebas de paridad por endpoint; ninguna funcionalidad eliminada |
+| 4. Dependencias y MB | Manifests y lockfiles; potencial migración a workspaces; limpieza de cachés | Instalar desde cero, medir antes/después y mantener scripts operativos |
+| 5. Errores | Manejo de errores API, scripts raíz/database y salud DB | No ocultar excepciones; suites y compilaciones limpias |
+| 6. Rendimiento | Consultas de reportes/CRUD, paginación, carga diferida | Medir consultas y bundle inicial con datos representativos |
+| 7. Regresión integral | Backend, frontend, Prisma, rutas y comparación Legacy | 120 pruebas más nuevas pruebas de integración y paridad aprobadas |
+
+No encontré archivos fuente exactos duplicados para eliminar. Los candidatos de limpieza son dependencias/cachés generadas y scripts placeholder; no recomiendo borrar Legacy, seeds, migraciones ni código de negocio durante la reorganización. El seed académico requiere una decisión de privacidad separada antes de compartir el repositorio.
+
+## 8. Estado de ejecución y avances del plan priorizado
+
+Se ejecutaron acciones correspondientes a las etapas del plan de auditoría, manteniendo la estabilidad y compatibilidad del sistema:
+
+### Avances completados:
+1. **Desacoplamiento arquitectónico (Etapa 2 - Estructura):**
+   - Se dividió `backend/src/server.ts` creando `backend/src/app.ts` para exportar la aplicación Express de manera desacoplada del puerto HTTP.
+   - `server.ts` ahora actúa exclusivamente como punto de arranque del servidor HTTP y manejador de parada limpia (`SIGINT`/`SIGTERM`), eliminando el riesgo de colisiones de puertos en pruebas.
+   - Frontend configurado con carga diferida (`React.lazy` y `<Suspense>`) en `frontend/src/App.tsx`, reduciendo el impacto del paquete inicial.
+
+2. **Saneamiento de dependencias y scripts (Etapas 4 y 5):**
+   - Se removió `zod` de `backend/package.json` tras comprobar que no existían importaciones activas en el código.
+   - Se eliminaron las dependencias duplicadas (`react`, `react-dom`, `@types/react`, `vite`, `typescript`) del `package.json` de la raíz.
+   - Se eliminaron los scripts placeholder ("no test specified"): la raíz ahora coordina `npm run check`, ejecutando linting, builds y pruebas de forma encadenada.
+   - En `database/package.json` se configuró `"test": "npm run validate"`.
+
+3. **Manejo de errores y base de datos (Etapa 5):**
+   - Se aseguró el endpoint `/api/health/db` para no exponer mensajes de error crudos de Prisma al cliente en caso de desconexión.
+   - Se aplicó en PostgreSQL la migración pendiente `20261118110000_daily_attendance` (`attendance_sessions` y `attendance_marks`), dejando el esquema de Prisma y la base de datos 100 % al día y sincronizados.
+
+4. **Pruebas y regresión integral (Etapas 5 y 7):**
+   - Se incorporó la suite de integración `backend/src/app.test.ts` con pruebas HTTP nativas para `/api/health`, `/api/health/db` y rutas no encontradas (404).
+   - Se ejecutó `npm run check` con resultado exitoso en todos sus pasos:
+     - ESLint en frontend: 0 errores, 0 advertencias.
+     - Compilación TypeScript de backend (`tsc -b`): correcta.
+     - Compilación y empaquetado Vite de frontend (`vite build`): correcta con división en 13 chunks independientes.
+     - Suite de pruebas de backend (Vitest): **123 tests aprobados en 13 archivos** (incluyendo Golden Tests).
+     - Validación del esquema Prisma: válida.
+
+### Siguientes pasos recomendados:
+- **Resguardo Git (Etapa 1):** Realizar un commit local de punto de control (`checkpoint`) que asegure los archivos nuevos (módulos de estudiantes, asistencia, reportes, observaciones, configuración, roles/seguridad, etc.) y las mejoras estructurales.
+- **Privacidad del Seed (Etapa 1):** Tomar una decisión sobre `sga-seed.json` (anonimizar o mover fuera del seguimiento de Git antes de publicar a un repositorio remoto).

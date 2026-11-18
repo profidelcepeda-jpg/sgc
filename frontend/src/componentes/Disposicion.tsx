@@ -22,8 +22,8 @@ export function Disposicion({ ctx, modulo, onModulo, onSalir, children }: Props)
         <button type="button" className="marca" onClick={() => onModulo(null)}>
           <span className="marca-logo">SGA</span>
           <span className="marca-texto">
-            Gestión académica
-            <small>Año {new Date().getFullYear()}</small>
+            {ctx.config?.nombreSistema || 'Gestión académica'}
+            <small>Año {ctx.config?.anoEscolar || '—'}</small>
           </span>
         </button>
 
@@ -36,7 +36,7 @@ export function Disposicion({ ctx, modulo, onModulo, onSalir, children }: Props)
             <span className="menu-sigla menu-sigla-panel">▦</span>
             Panel
           </button>
-          <span className="menu-titulo">Mantenimiento</span>
+          <span className="menu-titulo">Módulos</span>
           {disponibles.map(function (m) {
             return (
               <button
@@ -68,7 +68,7 @@ export function Disposicion({ ctx, modulo, onModulo, onSalir, children }: Props)
       <div className="contenido">
         <header className="cabecera">
           <div>
-            <span className="cabecera-etiqueta">Sistema de Gestión Académica</span>
+            <span className="cabecera-etiqueta">{ctx.config?.nombreSistema || 'Sistema de Gestión Académica'}</span>
             <h1>{modulo ? (MODULOS.find(function (m) { return m.id === modulo })?.et || modulo) : 'Panel general'}</h1>
           </div>
           <div className="cabecera-usuario">

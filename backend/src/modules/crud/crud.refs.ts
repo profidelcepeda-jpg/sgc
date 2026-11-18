@@ -5,18 +5,16 @@
 
 import { prisma } from '../../lib/db';
 import { ErrorApp } from '../../lib/errors';
+import { Ctx } from '../auth/auth.service';
+import { alcanceGlobal, anosAlcanzables, seccionesAlcanzables } from './autorizacion';
+import { leerValoresConfig } from '../configuration/configuration.service';
 
 export interface OpcionRef { id: string; texto: string; }
 
 /** Valores de config con valores por defecto (transcripción de config_()). */
 export async function configClaves(claves: string[]): Promise<Record<string, string>> {
-  const defecto: Record<string, string> = {
-    ANO_ESCOLAR: '2026-2027', NIVEL: 'Secundaria',
-    GRADOS: '1ro,2do,3ro,4to,5to,6to', FILAS_POR_PAGINA: '20',
-  };
-  const filas = await prisma.config.findMany({ where: { clave: { in: Object.keys(defecto).concat(claves) } } });
-  filas.forEach(function (f) { defecto[f.clave] = f.valor; });
-  return defecto;
+  const llaves = ['ANO_ESCOLAR', 'NIVEL', 'GRADOS', 'FILAS_POR_PAGINA', ...claves];
+  return leerValoresConfig(Array.from(new Set(llaves)));
 }
 
 function nombreDocente_(d: { titulo: string | null; nombreCompleto: string }): string {
@@ -24,11 +22,19 @@ function nombreDocente_(d: { titulo: string | null; nombreCompleto: string }): s
 }
 
 /** opcionesRef_ de Crud.js. `ano` se usa para secciones y períodos. */
-export async function opcionesRef_(ref: string, ano?: string): Promise<OpcionRef[]> {
+export async function opcionesRef_(ref: string, ano?: string, ctx?: Ctx): Promise<OpcionRef[]> {
   const cfg = await configClaves([]);
   const a = ano || cfg.ANO_ESCOLAR;
   if (ref === 'docentes') {
-    const ds = await prisma.teacher.findMany({ where: { estado: { not: 'INACTIVO' } } });
+    const puedeVerDirectorio = !ctx || ctx.rol === 'ADMINISTRADOR' || ctx.set['cursos.ver_todos'] === true ||
+      ctx.set['usuarios.crear'] === true || ctx.set['usuarios.editar'] === true ||
+      ctx.set['docentes.crear'] === true || ctx.set['docentes.editar'] === true ||
+      ctx.set['asignaciones.crear'] === true || ctx.set['asignaciones.editar'] === true ||
+      ctx.set['tutorias.crear'] === true || ctx.set['tutorias.editar'] === true;
+    const ds = await prisma.teacher.findMany({ where: {
+      estado: { not: 'INACTIVO' },
+      ...(ctx && !puedeVerDirectorio ? { id: ctx.idDocente || '__sin_docente__' } : {}),
+    } });
     return ds.map(function (d) { return { id: d.id, texto: nombreDocente_(d) }; })
       .sort(function (x, y) { return x.texto.localeCompare(y.texto, 'es'); });
   }
@@ -45,15 +51,19 @@ export async function opcionesRef_(ref: string, ano?: string): Promise<OpcionRef
     return [{ id: '*', texto: 'Todas (general)' }].concat(await opcionesRef_('asignaturas'));
   }
   if (ref === 'secciones') {
+    const ids = ctx && !alcanceGlobal(ctx, 'cursos') ? await seccionesAlcanzables(ctx, a) : null;
     const secs = await prisma.section.findMany({
-      where: { estado: { not: 'INACTIVO' }, course: { schoolYearId: a } },
+      where: { estado: 'ACTIVO', ...(ids ? { id: { in: ids } } : {}), course: { schoolYearId: a, estado: 'ACTIVO' } },
       include: { course: true },
     });
     return secs.map(function (s) { return { id: s.id, texto: s.course.grado + ' ' + s.seccion + ' (' + s.course.schoolYearId + ')' }; });
   }
   if (ref === 'periodos*') {
+    const anos = ctx && !alcanceGlobal(ctx, 'periodos') ? await anosAlcanzables(ctx) : null;
+    const puedeVerAno = !anos || anos.includes(a);
+    if (!puedeVerAno) return [];
     const per = await prisma.period.findMany({
-      where: { schoolYearId: a, tipo: 'REGULAR' }, orderBy: { orden: 'asc' },
+      where: { tipo: 'REGULAR', ...(anos ? { schoolYearId: { in: anos.filter(x => x === a) } } : { schoolYearId: a }) }, orderBy: { orden: 'asc' },
     });
     return [{ id: '*', texto: 'Todo el año' }].concat(per.map(function (x) { return { id: x.id, texto: x.codigo + ' – ' + x.nombre }; }));
   }

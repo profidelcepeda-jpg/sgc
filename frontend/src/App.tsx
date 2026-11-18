@@ -1,21 +1,31 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { api } from './lib/api'
 import type { Bootstrap, CtxSesion } from './tipos'
 import { Login } from './componentes/Login'
 import { CambiarClave } from './componentes/CambiarClave'
 import { Disposicion } from './componentes/Disposicion'
-import { Panel } from './componentes/Panel'
-import { ModuloCrud } from './componentes/ModuloCrud'
+
+const Panel = lazy(() => import('./componentes/Panel').then(({ Panel }) => ({ default: Panel })))
+const ModuloCrud = lazy(() => import('./componentes/ModuloCrud').then(({ ModuloCrud }) => ({ default: ModuloCrud })))
+const Calificaciones = lazy(() => import('./componentes/Calificaciones').then(({ Calificaciones }) => ({ default: Calificaciones })))
+const Reportes = lazy(() => import('./componentes/Reportes').then(({ Reportes }) => ({ default: Reportes })))
+const Observaciones = lazy(() => import('./componentes/Observaciones').then(({ Observaciones }) => ({ default: Observaciones })))
+const Configuracion = lazy(() => import('./componentes/Configuracion').then(({ Configuracion }) => ({ default: Configuracion })))
+const Consulta = lazy(() => import('./componentes/Consulta').then(({ Consulta }) => ({ default: Consulta })))
+const Estudiantes = lazy(() => import('./componentes/Estudiantes').then(({ Estudiantes }) => ({ default: Estudiantes })))
+const RolesPermisos = lazy(() => import('./componentes/RolesPermisos').then(({ RolesPermisos }) => ({ default: RolesPermisos })))
+const Asistencia = lazy(() => import('./componentes/Asistencia').then(({ Asistencia }) => ({ default: Asistencia })))
 
 export default function App() {
   const [ctx, setCtx] = useState<CtxSesion | null>(null)
   const [cargando, setCargando] = useState(true)
   const [modulo, setModulo] = useState<string | null>(null)
+  const [estudianteInicial, setEstudianteInicial] = useState<{ id:string; ano:string } | null>(null)
 
   const cargar = useCallback(async function (): Promise<void> {
     try {
       const r = await api<Bootstrap>('/api/auth/bootstrap')
-      setCtx(Object.assign({}, r.usuario, { permisos: r.permisos, set: r.set }))
+      setCtx(Object.assign({}, r.usuario, { permisos: r.permisos, set: r.set, config: r.config }))
     } catch {
       // Sin sesión (o sesión expirada): se muestra el acceso.
       setCtx(null)
@@ -28,7 +38,7 @@ export default function App() {
     // callbacks asíncronos (no de forma síncrona dentro del efecto).
     api<Bootstrap>('/api/auth/bootstrap').then(function (r) {
       if (!vivo) return
-      setCtx(Object.assign({}, r.usuario, { permisos: r.permisos, set: r.set }))
+      setCtx(Object.assign({}, r.usuario, { permisos: r.permisos, set: r.set, config: r.config }))
     }, function () {
       if (!vivo) return
       setCtx(null)
@@ -65,9 +75,11 @@ export default function App() {
 
   return (
     <Disposicion ctx={ctx} modulo={modulo} onModulo={setModulo} onSalir={() => void salir()}>
-      {modulo
-        ? <ModuloCrud key={modulo} modulo={modulo} />
-        : <Panel ctx={ctx} onIr={setModulo} />}
+      <Suspense fallback={<div className="tarjeta" role="status">Cargando módulo…</div>}>
+        {modulo
+          ? modulo === 'estudiantes' ? <Estudiantes key={modulo} permisos={ctx.set} onAbrirConsulta={(id,ano)=>{setEstudianteInicial({id,ano});setModulo('consulta')}} /> : modulo === 'consulta' ? <Consulta key={modulo} permisos={ctx.set} estudianteInicial={estudianteInicial} /> : modulo === 'calificaciones' ? <Calificaciones key={modulo} /> : modulo === 'asistencia' ? <Asistencia key={modulo} permisos={ctx.set} idDocente={ctx.idDocente} /> : modulo === 'reportes' ? <Reportes key={modulo} /> : modulo === 'observaciones' ? <Observaciones key={modulo} /> : modulo === 'configuracion' ? <Configuracion key={modulo} onModulo={setModulo} /> : modulo === 'roles' ? <RolesPermisos key={modulo} permisos={ctx.set} /> : <ModuloCrud key={modulo} modulo={modulo} />
+          : <Panel ctx={ctx} onIr={setModulo} />}
+      </Suspense>
     </Disposicion>
   )
 }

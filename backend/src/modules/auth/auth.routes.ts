@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import { cambiarClave, cerrarSesion, login, perfilPublico_ } from './auth.service';
 import { requireSesion } from '../../middleware/auth';
+import { leerValoresConfig } from '../configuration/configuration.service';
 
 const router = Router();
 
@@ -34,10 +35,13 @@ router.post('/logout', requireSesion, function (req, res, next) {
   }, next);
 });
 
-router.get('/bootstrap', requireSesion, function (req, res) {
+router.get('/bootstrap', requireSesion, function (req, res, next) {
   const ctx = req.ctx as NonNullable<typeof req.ctx>;
   // No se devuelve tokenHash: el cliente solo necesita el perfil y sus permisos.
-  res.json({ ok: true, usuario: perfilPublico_(ctx), permisos: ctx.permisos, set: ctx.set });
+  leerValoresConfig(['NOMBRE_SISTEMA', 'ANO_ESCOLAR']).then(function (config) {
+    res.json({ ok: true, usuario: perfilPublico_(ctx), permisos: ctx.permisos, set: ctx.set,
+      config: { nombreSistema: config.NOMBRE_SISTEMA, anoEscolar: config.ANO_ESCOLAR } });
+  }, next);
 });
 
 router.post('/cambiar-clave', requireSesion, function (req, res, next) {
