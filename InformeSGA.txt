@@ -157,6 +157,7 @@ Se ejecutaron acciones correspondientes a las etapas del plan de auditoría, man
      - Suite de pruebas de backend (Vitest): **123 tests aprobados en 13 archivos** (incluyendo Golden Tests).
      - Validación del esquema Prisma: válida.
 
-### Siguientes pasos recomendados:
-- **Resguardo Git (Etapa 1):** Realizar un commit local de punto de control (`checkpoint`) que asegure los archivos nuevos (módulos de estudiantes, asistencia, reportes, observaciones, configuración, roles/seguridad, etc.) y las mejoras estructurales.
-- **Privacidad del Seed (Etapa 1):** Tomar una decisión sobre `sga-seed.json` (anonimizar o mover fuera del seguimiento de Git antes de publicar a un repositorio remoto).
+5. **Resguardo y Privacidad (Etapa 1):**
+   - **Punto de control en Git**: Se consolidó el commit `92eb477` (`feat(sga): checkpoint integral de modulos funcionales, arquitectura y saneamiento de auditoria`), asegurando todos los módulos funcionales, migraciones, pruebas y ajustes arquitectónicos con el árbol de trabajo limpio.
+   - **Mitigación de privacidad del Seed**: Se desarrolló el script de anonimización [`database/scripts/anonimizar-seed.js`](file:///C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/database/scripts/anonimizar-seed.js) y se generó [`database/seeds/sga-seed.anon.json`](file:///C:/Users/FIDELOV/Desktop/SGn/PROYECTO_GSC/SGA/database/seeds/sga-seed.anon.json). Esto despersonaliza 273 estudiantes, 14 docentes y usuarios, manteniendo íntegros los IDs, calificaciones, cálculos académicos y Golden Tests. Si se desea reemplazar el archivo original antes de publicar a un remoto público, basta con ejecutar `node scripts/anonimizar-seed.js --in-place`.
+
