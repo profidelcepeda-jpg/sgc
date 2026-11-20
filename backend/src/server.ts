@@ -4,6 +4,11 @@
  * La aplicación Express reside en app.ts para desacoplar tests y runtime.
  *********************************************************************/
 
+import dotenv from 'dotenv';
+import path from 'path';
+// El .env vive junto al schema de Prisma (SGA/database/.env)
+dotenv.config({ path: path.resolve(__dirname, '../../database/.env') });
+
 import { app } from './app';
 import { prisma } from './lib/db';
 

@@ -38,6 +38,14 @@ describe('servicio de configuración', () => {
     expect(m.txCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ clave: 'MAX_INTENTOS_LOGIN', valor: '4' }) }));
     expect(m.txAudit).toHaveBeenCalledTimes(1);
   });
+  it('guarda modalidad y referencia local de logo, y rechaza rutas externas', async () => {
+    await expect(actualizarConfiguracion(admin, 'general', { LOGO_CENTRO: 'https://example.com/logo.png' })).rejects.toMatchObject({ codigo: 'VALIDACION' });
+    expect(m.transaction).not.toHaveBeenCalled();
+    await actualizarConfiguracion(admin, 'general', { MODALIDAD: 'Jornada Escolar Extendida', LOGO_CENTRO: 'logo_liceo.jpg' });
+    expect(m.txCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ clave: 'MODALIDAD', valor: 'Jornada Escolar Extendida' }) }));
+    expect(m.txCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ clave: 'LOGO_CENTRO', valor: 'logo_liceo.jpg' }) }));
+    expect(m.txAudit).toHaveBeenCalledTimes(2);
+  });
   it('no permite activar un año inexistente o sin cuatro períodos regulares', async () => {
     m.year.mockResolvedValue(null);
     await expect(actualizarConfiguracion(admin, 'general', { ANO_ESCOLAR: '2027-2028' })).rejects.toThrow('debe existir');

@@ -43,12 +43,24 @@ export async function api<T>(ruta: string, opciones: OpcionesApi = {}): Promise<
 
   const texto = await res.text();
   let data: unknown = null;
+  let respuestaJson = false;
   if (texto) {
-    try { data = JSON.parse(texto); } catch { data = null; }
+    try {
+      data = JSON.parse(texto);
+      respuestaJson = true;
+    } catch {
+      data = null;
+    }
   }
   const obj = (data !== null && typeof data === 'object') ? data as Record<string, unknown> : {};
   if (!res.ok || obj.ok === false) {
-    const mensaje = typeof obj.error === 'string' ? obj.error : 'No se pudo completar la operación.';
+    const mensaje = typeof obj.error === 'string'
+      ? obj.error
+      : !respuestaJson && res.status >= 500
+        ? `El servidor no pudo atender la solicitud (HTTP ${res.status}). Verifique que el backend esté iniciado en el puerto 4000.`
+        : !respuestaJson
+          ? `El servidor devolvió una respuesta inválida (HTTP ${res.status}).`
+          : `La solicitud falló (HTTP ${res.status}) y el servidor no indicó el motivo.`;
     const codigo = typeof obj.codigo === 'string' ? obj.codigo : undefined;
     throw new ApiError(mensaje, res.status, codigo);
   }

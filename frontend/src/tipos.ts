@@ -96,6 +96,13 @@ export interface Bootstrap {
 export interface SaludDb {
   ok: boolean;
   db: string;
+  error?: string;
+}
+
+/** Conteos del Panel (GET /api/health/summary, requiere sesión). */
+export interface ResumenSistema {
+  ok: boolean;
+  ano: string;
   students: number;
   gradeRecords: number;
   resultSummaries: number;
@@ -103,8 +110,48 @@ export interface SaludDb {
 }
 
 export interface OpcionCalificacion { ano: string; seccion: string; seccionTexto: string; asignaturas: Array<{ id: string; texto: string }> }
-export interface NotaEstudiante { id: string; nombre: string; numLista: number; notas: Record<string, number | null>; calculo: Record<string, unknown> }
-export interface GridCalificaciones { ano: string; seccion: string; asignatura: string; seccionTexto: string; asignaturaTexto: string; puedeEditar: boolean; minima: number; periodos: Array<{id:string;codigo:string;estado:string}>; etapas?: Record<string,{id:string;codigo:string;estado:string}>; estudiantes: NotaEstudiante[] }
+export interface CalculoCalificacion {
+  periodos: Array<{ promedio: number | null; ingresadas: number; pendientesRP: number; estado: string }>;
+  pcMostrar: Array<number | null>;
+  cf: number | null;
+  cfReal: number | null;
+  comp: { habilitada: boolean; cec: number | null; ccf: number | null };
+  ext: { habilitada: boolean; ceex: number | null; cexf: number | null };
+  esp: { habilitada: boolean; cesp: number | null };
+  A: number | null;
+  R: number | null;
+  estado: string | null;
+  situacion: string;
+}
+export interface NotaEstudiante { id: string; nombre: string; numLista: number; notas: Record<string, number | null>; calculo: CalculoCalificacion }
+export interface GridCalificaciones {
+  ano: string;
+  seccion: string;
+  asignatura: string;
+  seccionTexto: string;
+  asignaturaTexto: string;
+  puedeEditar: boolean;
+  minima: number;
+  periodos: Array<{ id: string; codigo: string; estado: string }>;
+  etapas?: Record<string, { id: string; codigo: string; estado: string }>;
+  estudiantes: NotaEstudiante[];
+}
+export interface MatrizAsistenciaIntegrada {
+  ano: string;
+  asignatura: { id: string; nombre: string };
+  curso: { id: string; grado: string };
+  seccion: { id: string; seccion: string };
+  meses: Array<{ codigo: string; nombre: string }>;
+  periodos: Array<{ codigo: string; meses: string[] }>;
+  puedeRegistrar: boolean;
+  estudiantes: Array<{
+    estudianteId: string;
+    numLista: number;
+    nombre: string;
+    matricula: string | null;
+    meses: Record<string, number | null>;
+  }>;
+}
 
 export interface ReportOpcion { ano:string; seccion:string; etiqueta:string }
 export interface ReportCalculo {

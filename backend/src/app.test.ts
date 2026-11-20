@@ -46,8 +46,29 @@ describe('API Smoke & Health Tests (app.ts)', () => {
     }
   });
 
-  it('Ruta inexistente responde 404', async () => {
+  it('Ruta inexistente responde 404 JSON con codigo', async () => {
     const res = await fetch(`${baseUrl}/api/ruta-que-no-existe`);
     expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ ok: false, error: 'Ruta no encontrada.', codigo: 'NO_ENCONTRADO' });
+  });
+
+  it('un cuerpo JSON malformado responde 400 con codigo VALIDACION', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"usuario":',
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      ok: false, error: 'El cuerpo de la petición no es JSON válido.', codigo: 'VALIDACION',
+    });
+  });
+
+  it('GET /api/health/summary exige sesión', async () => {
+    const res = await fetch(`${baseUrl}/api/health/summary`);
+    expect(res.status).toBe(401);
+    const body = await res.json() as { ok: boolean; codigo?: string };
+    expect(body.ok).toBe(false);
+    expect(body.codigo).toBe('SESION');
   });
 });

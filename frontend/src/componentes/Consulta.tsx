@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, mensajeDeError } from '../lib/api'
+import { formatearNumero as fmt, qs } from '../lib/formato'
 
 type Seccion={id:string;ano:string;curso:string;grado:string;seccion:string;etiqueta:string;tutor?:string}
 type Estudiante={id:string;nombre:string;nombres?:string|null;apellidos?:string|null;matricula?:string|null;estado:string;estadoEstudiante?:string;ano:string;curso:string;seccion:string;grado:string;letra:string;numLista:number}
@@ -9,8 +10,6 @@ type Registro={estudiante:{id:string;nombre:string;matricula:string|null;estado:
 type Calculo={cf:number|null;comp:{ccf:number|null};ext:{cexf:number|null};esp:{cesp:number|null};A:number|null;R:number|null;situacion:string;periodos:Array<{promedio:number|null;estado:string}>}
 type Expediente={datos:{nombre:string;matricula:string|null;estado:string};inscripcion:{ano:string;estado:string;numLista:number};curso:{grado:string;seccion:string;tutor:string};asignaturas:Array<{id:string;nombreReporte:string}>;estudiante:{situacion:string;registros:Record<string,{notas:Record<string,number|null>;calc:Calculo}>;asistencia:{periodos:Record<number,number|null>;anual:number|null}|null;asistenciaDiaria:{sesiones:number;resumen:{PRESENTE:number;AUSENTE:number;TARDANZA:number;EXCUSADO:number;porcentaje:number|null};marcas:Array<{fecha:string;estado:string;periodo:string}>}|null};asistencia:unknown|null;observaciones:Array<{id:string;fecha:string;tipo:string;asignatura:string;periodo:string;docente:string;texto:string}>|null}
 type Historial={items:Array<{ano:string;curso:string;situacion:string}>}
-const qs=(values:Record<string,string|number>)=>new URLSearchParams(Object.entries(values).filter(([,v])=>String(v)).map(([k,v])=>[k,String(v)])).toString()
-const fmt=(n:number|null|undefined)=>n==null?'—':n.toLocaleString('es-DO',{maximumFractionDigits:2})
 
 export function Consulta({permisos,estudianteInicial}:{permisos:Record<string,true>;estudianteInicial?:{id:string;ano:string}|null}){
  const selectedInicial:Estudiante|null=estudianteInicial?{id:estudianteInicial.id,nombre:'',matricula:null,estado:'ACTIVO',ano:estudianteInicial.ano,curso:'',seccion:'',grado:'',letra:'',numLista:0}:null

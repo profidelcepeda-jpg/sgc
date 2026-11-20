@@ -17,6 +17,20 @@ export function exigirPermiso(ctx: Ctx, permiso: string): void {
   }
 }
 
+/**
+ * Alcance global: el usuario ve todos los registros del módulo, sin filtrar por
+ * docente. Política confirmada con los roles reales de la base:
+ *   - ADMINISTRADOR: siempre.
+ *   - cursos.ver_todos: cursos, asignaciones, tutorías y períodos.
+ *   - cursos.crear/editar: cursos.
+ *   - asignaciones.crear/editar: asignaciones.
+ *   - tutorias.crear/editar: tutorías.
+ *   - periodos.administrar: períodos.
+ * Crear o editar exige ver el universo sobre el que se opera, por eso esos
+ * permisos implican alcance global. Hoy solo ADMINISTRADOR los tiene; los demás
+ * roles solo reciben `*.ver` y `cursos.ver_todos`. Los permisos `*.ver` NO
+ * amplían alcance. Ver docs/architecture/politica-alcance.md.
+ */
 export function alcanceGlobal(ctx: Ctx, modulo: ModuloCrud): boolean {
   if (ctx.rol === 'ADMINISTRADOR') return true;
   if (modulo === 'cursos') return ctx.set['cursos.ver_todos'] === true ||

@@ -111,4 +111,43 @@ describe('Autorización central del CRUD', () => {
       ano: '2026-2027', seccion: 'SEC-1', docente: 'DOC-1', estado: 'ACTIVA',
     })).rejects.toThrow(ErrorApp);
   });
+
+  it('cursos.ver_todos otorga alcance global de lectura a los cuatro módulos académicos', async () => {
+    const coordinador = ctx({ rol: 'COORDINADOR', set: { 'cursos.ver_todos': true } });
+    expect(await filtrarAlcanceListado(coordinador, 'cursos')).toEqual({});
+    expect(await filtrarAlcanceListado(coordinador, 'asignaciones')).toEqual({});
+    expect(await filtrarAlcanceListado(coordinador, 'tutorias')).toEqual({});
+    expect(await filtrarAlcanceListado(coordinador, 'periodos')).toEqual({});
+  });
+
+  it('los permisos de crear/editar implican alcance global del módulo, no de los demás', async () => {
+    const editorAsignaciones = ctx({ set: { 'asignaciones.editar': true } });
+    expect(await filtrarAlcanceListado(editorAsignaciones, 'asignaciones', '2026-2027'))
+      .toEqual({ schoolYearId: '2026-2027' });
+    mocks.teachingFindMany.mockResolvedValue([]);
+    mocks.tutoringFindMany.mockResolvedValue([]);
+    expect(await filtrarAlcanceListado(editorAsignaciones, 'cursos'))
+      .toEqual({ id: { in: [] } });
+
+    const editorTutorias = ctx({ set: { 'tutorias.crear': true } });
+    expect(await filtrarAlcanceListado(editorTutorias, 'tutorias')).toEqual({});
+
+    const editorCursos = ctx({ set: { 'cursos.editar': true } });
+    expect(await filtrarAlcanceListado(editorCursos, 'cursos')).toEqual({});
+
+    const adminPeriodos = ctx({ set: { 'periodos.administrar': true } });
+    expect(await filtrarAlcanceListado(adminPeriodos, 'periodos')).toEqual({});
+  });
+
+  it('los permisos *.ver no otorgan alcance global', async () => {
+    const docente = ctx({ set: { 'cursos.ver': true, 'tutorias.ver': true, 'periodos.ver': true } });
+    expect(await filtrarAlcanceListado(docente, 'asignaciones', '2026-2027')).toEqual({
+      teacherId: 'DOC-1', estado: 'ACTIVO', schoolYearId: '2026-2027',
+      section: { estado: 'ACTIVO', course: { schoolYearId: '2026-2027', estado: 'ACTIVO' } },
+    });
+    mocks.teachingFindMany.mockResolvedValue([{ sectionId: 'SEC-1' }]);
+    mocks.tutoringFindMany.mockResolvedValue([]);
+    expect(await filtrarAlcanceListado(docente, 'cursos', '2026-2027'))
+      .toEqual({ id: { in: ['SEC-1'] }, course: { schoolYearId: '2026-2027' } });
+  });
 });

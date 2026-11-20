@@ -1,48 +1,522 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, mensajeDeError } from '../lib/api'
+import { qs } from '../lib/formato'
 
-type Estado='PRESENTE'|'AUSENTE'|'TARDANZA'|'EXCUSADO'
-type Seccion={id:string;ano:string;curso:string;grado:string;seccion:string;etiqueta:string;docentes:Array<{id:string;nombre:string}>;puedeRegistrar:boolean}
-type Opciones={anos:string[];secciones:Seccion[]}
-type Marca={id:string;enrollmentId:string;numLista:number;nombre:string;matricula:string|null;estadoMatricula:string;estadoEstudiante:string;estado:Estado|null;observacion:string}
-type Dia={ano:string;fecha:string;seccion:{id:string;curso:string;grado:string;seccion:string};sesion:{id:string;docenteId:string;docente:string;creado:string;modificado:string}|null;puedeEditar:boolean;marcas:Marca[];resumen:{PRESENTE:number;AUSENTE:number;TARDANZA:number;EXCUSADO:number;total:number;considerados:number;porcentaje:number|null}}
-type Historial={items:Array<{id:string;fecha:string;docente:string;resumen:{PRESENTE:number;AUSENTE:number;TARDANZA:number;EXCUSADO:number;total:number;considerados:number;porcentaje:number|null};estudiantes:Array<{id:string;nombre:string;numLista:number;estado:Estado;observacion:string|null}>}>;total:number;pag:number;paginas:number}
-type StudentHistory={items:Array<{id:string;fecha:string;ano:string;curso:string;docente:string;estado:Estado;observacion:string|null}>;resumen:{PRESENTE:number;AUSENTE:number;TARDANZA:number;EXCUSADO:number;total:number;considerados:number;porcentaje:number|null};porPeriodo:Array<{ano:string;periodo:string;PRESENTE:number;AUSENTE:number;TARDANZA:number;EXCUSADO:number;total:number;considerados:number;porcentaje:number|null}>}
-const ESTADOS:Estado[]=['PRESENTE','AUSENTE','TARDANZA','EXCUSADO']
-const fmtFecha=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-const qs=(v:Record<string,string|number>)=>new URLSearchParams(Object.entries(v).filter(([,x])=>String(x)).map(([k,x])=>[k,String(x)])).toString()
-const percentage=(v:number|null)=>v==null?'—':`${v.toFixed(2)}%`
+interface Props {
+  permisos: Record<string, true>
+  idDocente?: string | null
+}
 
-export function Asistencia({permisos,idDocente}:{permisos:Record<string,true>;idDocente:string|null}){
- const puedeVer=permisos['asistencia.ver']===true
- const [opts,setOpts]=useState<Opciones>({anos:[],secciones:[]}),[ano,setAno]=useState(''),[seccion,setSeccion]=useState(''),[fecha,setFecha]=useState(fmtFecha(new Date())),[docente,setDocente]=useState(''),[dia,setDia]=useState<Dia|null>(null),[marcas,setMarcas]=useState<Marca[]>([]),[motivo,setMotivo]=useState(''),[tab,setTab]=useState<'registro'|'historial'|'estudiante'>('registro'),[desde,setDesde]=useState(''),[hasta,setHasta]=useState(''),[page,setPage]=useState(1),[historial,setHistorial]=useState<Historial|null>(null),[historialEstudiante,setHistorialEstudiante]=useState<StudentHistory|null>(null),[estudianteNombre,setEstudianteNombre]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false)
- const secciones=useMemo(()=>opts.secciones.filter(x=>x.ano===ano),[opts.secciones,ano]),seleccionada=secciones.find(x=>x.id===seccion)
- const docenteDisponible=seleccionada?.docentes||[]
- const marcados=marcas.filter(m=>!!m.estado),cuentas={PRESENTE:marcados.filter(m=>m.estado==='PRESENTE').length,AUSENTE:marcados.filter(m=>m.estado==='AUSENTE').length,TARDANZA:marcados.filter(m=>m.estado==='TARDANZA').length,EXCUSADO:marcados.filter(m=>m.estado==='EXCUSADO').length}
- const pendientes=marcas.filter(m=>!m.estado).length
- const cambiadas=!!dia?.sesion&&dia.marcas.some(original=>{const current=marcas.find(m=>m.id===original.id);return current&&(current.estado!==original.estado||current.observacion!==original.observacion)})
- async function cargarOpciones(year?:string){const result=await api<Opciones>(`/api/attendance/options?${qs({ano:year||''})}`);setOpts(result);const nextYear=year||result.anos[0]||'';setAno(nextYear);const first=result.secciones.find(s=>s.ano===nextYear);setSeccion(current=>result.secciones.some(s=>s.ano===nextYear&&s.id===current)?current:first?.id||'');}
- useEffect(()=>{if(!puedeVer)return;let vivo=true;api<Opciones>('/api/attendance/options').then(result=>{if(!vivo)return;setOpts(result);setAno(result.anos[0]||'');setSeccion(result.secciones[0]?.id||'')},e=>{if(vivo)setError(mensajeDeError(e))});return()=>{vivo=false}},[puedeVer])
- async function consultar(){if(!ano||!seccion||!fecha){setError('Seleccione año, sección y fecha.');return}setBusy(true);setError('');setNotice('');try{const result=await api<Dia>(`/api/attendance/sections/${encodeURIComponent(seccion)}/daily?${qs({ano,fecha})}`);setDia(result);setMarcas(result.marcas.map(m=>({...m})));setMotivo('');const s=secciones.find(x=>x.id===seccion);if(s?.docentes.length){setDocente(current=>s.docentes.some(d=>d.id===current)?current:(idDocente&&s.docentes.some(d=>d.id===idDocente)?idDocente:s.docentes[0].id))}}catch(e){setError(mensajeDeError(e))}finally{setBusy(false)}}
- function estadoTodos(value:Estado){setMarcas(current=>current.map(m=>m.estado===null?{...m,estado:value}:m))}
- async function guardar(e:FormEvent){e.preventDefault();if(!dia||!seccion)return;setBusy(true);setError('');setNotice('');try{if(dia.sesion){await api(`/api/attendance/sessions/${encodeURIComponent(dia.sesion.id)}`,{method:'PATCH',body:{marcas:marcas.filter(m=>m.estado).map(m=>({estudianteId:m.id,estado:m.estado,observacion:m.observacion})),motivo}});setNotice('Corrección guardada y auditada.')}else{if(pendientes){setError(`Falta registrar el estado de ${pendientes} estudiante(s).`);return}await api('/api/attendance/bulk',{method:'POST',body:{ano,seccion,fecha,docenteId:docente,marcas:marcas.map(m=>({estudianteId:m.id,estado:m.estado,observacion:m.observacion}))}});setNotice('Asistencia grupal registrada.')}await consultar()}catch(err){setError(mensajeDeError(err))}finally{setBusy(false)}}
- async function consultarHistorial(p=1){if(!ano||!seccion){setError('Seleccione año y sección.');return}setBusy(true);setError('');try{setHistorial(await api<Historial>(`/api/attendance/sections/${encodeURIComponent(seccion)}/history?${qs({ano,desde,hasta,pag:p,tam:20})}`));setPage(p)}catch(e){setError(mensajeDeError(e))}finally{setBusy(false)}}
- async function verEstudiante(m:{id:string;nombre:string}){setEstudianteNombre(m.nombre);setHistorialEstudiante(null);setTab('estudiante');setBusy(true);setError('');try{setHistorialEstudiante(await api<StudentHistory>(`/api/attendance/students/${encodeURIComponent(m.id)}/history?${qs({ano})}`))}catch(e){setError(mensajeDeError(e))}finally{setBusy(false)}}
- if(!puedeVer)return <section className="tarjeta"><h2>Asistencia</h2><p>No tiene permiso para consultar asistencia.</p></section>
- return <section className="asistencia">
-  <header className="tarjeta asistencia-cabecera"><div><h2>Asistencia</h2><p className="texto-secundario">Registro diario complementario a los porcentajes mensuales históricos.</p></div><nav><button className={tab==='registro'?'activo':''} onClick={()=>setTab('registro')}>Pasar asistencia</button><button className={tab==='historial'?'activo':''} onClick={()=>setTab('historial')}>Historial por sección</button>{historialEstudiante&&<button className={tab==='estudiante'?'activo':''} onClick={()=>setTab('estudiante')}>Historial individual</button>}</nav></header>
-  <div className="tarjeta asistencia-filtros"><label>Año escolar<select value={ano} onChange={e=>{void cargarOpciones(e.target.value);setDia(null);setHistorial(null)}}><option value="">Seleccione</option>{opts.anos.map(y=><option key={y}>{y}</option>)}</select></label><label>Curso / sección<select value={seccion} onChange={e=>{setSeccion(e.target.value);setDia(null);setHistorial(null)}}><option value="">Seleccione</option>{secciones.map(s=><option key={s.id} value={s.id}>{s.etiqueta}</option>)}</select></label>{tab==='registro'&&<label>Fecha<input type="date" value={fecha} max={fmtFecha(new Date())} onChange={e=>{setFecha(e.target.value);setDia(null)}}/></label>}{tab==='historial'&&<><label>Desde<input type="date" value={desde} onChange={e=>setDesde(e.target.value)}/></label><label>Hasta<input type="date" value={hasta} onChange={e=>setHasta(e.target.value)}/></label></>}<button className="boton primario" disabled={busy} onClick={()=>void (tab==='historial'?consultarHistorial(1):consultar())}>{tab==='historial'?'Consultar historial':'Consultar lista'}</button></div>
-  {error&&<div className="aviso error">{error}</div>}{notice&&<div className="aviso ok">{notice}</div>}{busy&&<p role="status">Consultando...</p>}
-  {tab==='registro'&&dia&&<form className="tarjeta asistencia-registro" onSubmit={e=>void guardar(e)}><header><div><h3>{dia.seccion.grado} {dia.seccion.seccion} · {dia.fecha}</h3><p>{dia.sesion?`Responsable: ${dia.sesion.docente} · Registrada ${new Date(dia.sesion.creado).toLocaleString('es-DO')}`:'Sin registro para esta fecha.'}</p></div>{dia.puedeEditar&&<div className="asistencia-acciones"><button type="button" onClick={()=>estadoTodos('PRESENTE')}>Marcar pendientes presentes</button><button type="button" onClick={()=>estadoTodos('AUSENTE')}>Marcar pendientes ausentes</button></div>}</header>
-   {dia.puedeEditar&&!dia.sesion&&<label>Docente responsable<select required value={docente} onChange={e=>setDocente(e.target.value)}><option value="">Seleccione</option>{docenteDisponible.map(d=><option key={d.id} value={d.id}>{d.nombre}</option>)}</select></label>}
-   <div className="asistencia-resumen">{ESTADOS.map(s=><span key={s}><strong>{cuentas[s]}</strong> {s.toLowerCase()}</span>)}<span><strong>{pendientes}</strong> sin registrar</span></div>
-   <div className="tabla-contenedor"><table><thead><tr><th>No.</th><th>Matrícula</th><th>Estudiante</th><th>Estado</th><th>Observación</th><th>Historial</th></tr></thead><tbody>{marcas.map((m,i)=><tr key={m.enrollmentId}><td>{m.numLista}</td><td>{m.matricula||'—'}</td><td>{m.nombre}{m.estadoMatricula!=='ACTIVO'&&<small className="asistencia-estado-anterior"> · {m.estadoMatricula}</small>}</td><td><select aria-label={`Estado de ${m.nombre}`} value={m.estado||''} disabled={!dia.puedeEditar||(!!dia.sesion&&!m.estado)} required={!dia.sesion} onChange={e=>setMarcas(current=>current.map((x,j)=>j===i?{...x,estado:(e.target.value||null) as Estado|null}:x))}><option value="">Sin registrar</option>{ESTADOS.map(s=><option key={s} value={s}>{s}</option>)}</select></td><td><input maxLength={300} aria-label={`Observación de ${m.nombre}`} value={m.observacion} disabled={!dia.puedeEditar||(!!dia.sesion&&!m.estado)} onChange={e=>setMarcas(current=>current.map((x,j)=>j===i?{...x,observacion:e.target.value}:x))}/></td><td><button type="button" onClick={()=>void verEstudiante({id:m.id,nombre:m.nombre})}>Ver</button></td></tr>)}</tbody></table>{!marcas.length&&<p>No hay estudiantes en la matrícula visible.</p>}</div>
-   {dia.sesion&&dia.puedeEditar&&<label className="asistencia-motivo">Motivo obligatorio para modificar la sesión<textarea required minLength={8} maxLength={300} value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Explique brevemente la corrección"/></label>}
-   {dia.puedeEditar&&<div className="asistencia-acciones"><button className="boton primario" disabled={busy||(!dia.sesion&&pendientes>0)||(!!dia.sesion&&!cambiadas)}>{dia.sesion?'Guardar corrección':'Guardar asistencia'}</button></div>}
-   <p className="texto-secundario">Porcentaje diario mostrado como criterio operativo: (presentes + tardanzas) / marcas no excusadas. Las excusas no cuentan en el denominador.</p>
-  </form>}
-  {tab==='historial'&&historial&&<article className="tarjeta asistencia-historial"><h3>Registros de sección</h3><div className="tabla-contenedor"><table><thead><tr><th>Fecha</th><th>Docente</th><th>Presentes</th><th>Ausentes</th><th>Tardanzas</th><th>Excusados</th><th>% asistencia</th><th>Estudiantes</th></tr></thead><tbody>{historial.items.map(s=><tr key={s.id}><td>{s.fecha}</td><td>{s.docente}</td><td>{s.resumen.PRESENTE}</td><td>{s.resumen.AUSENTE}</td><td>{s.resumen.TARDANZA}</td><td>{s.resumen.EXCUSADO}</td><td>{percentage(s.resumen.porcentaje)}</td><td><details><summary>Ver marcas</summary><ul>{s.estudiantes.map(x=><li key={x.id}>{x.numLista}. {x.nombre}: {x.estado}{x.observacion?` — ${x.observacion}`:''}</li>)}</ul></details></td></tr>)}</tbody></table>{!historial.items.length&&<p>No hay registros en el rango indicado.</p>}</div><div className="consulta-paginacion"><span>{historial.total} sesiones · página {historial.pag} de {historial.paginas||1}</span><div><button disabled={page<=1||busy} onClick={()=>void consultarHistorial(page-1)}>Anterior</button><button disabled={page>=historial.paginas||busy} onClick={()=>void consultarHistorial(page+1)}>Siguiente</button></div></div></article>}
-  {tab==='estudiante'&&historialEstudiante&&<article className="tarjeta asistencia-historial"><h3>Historial de {estudianteNombre}</h3><div className="asistencia-resumen"><span>{historialEstudiante.resumen.PRESENTE} presentes</span><span>{historialEstudiante.resumen.AUSENTE} ausentes</span><span>{historialEstudiante.resumen.TARDANZA} tardanzas</span><span>{historialEstudiante.resumen.EXCUSADO} excusados</span><span>{percentage(historialEstudiante.resumen.porcentaje)}</span></div><h4>Resumen por período</h4><div className="tabla-contenedor"><table><thead><tr><th>Año</th><th>Período</th><th>Presentes</th><th>Ausentes</th><th>Tardanzas</th><th>Excusados</th><th>% asistencia</th></tr></thead><tbody>{historialEstudiante.porPeriodo.map((p,i)=><tr key={p.ano+p.periodo+i}><td>{p.ano}</td><td>{p.periodo}</td><td>{p.PRESENTE}</td><td>{p.AUSENTE}</td><td>{p.TARDANZA}</td><td>{p.EXCUSADO}</td><td>{percentage(p.porcentaje)}</td></tr>)}</tbody></table></div><h4>Marcas</h4><ul>{historialEstudiante.items.map(i=><li key={i.id}>{i.fecha} · {i.ano} · {i.curso} · {i.estado}{i.observacion?` — ${i.observacion}`:''}</li>)}</ul></article>}
- </section>
+interface Maestro {
+  id: string
+  nombreCompleto: string
+}
+
+interface CursoSeccion {
+  cursoId: string
+  grado: string
+  seccionId: string
+  seccion: string
+  etiqueta: string
+}
+
+interface Clase {
+  asignaturaId: string
+  asignatura: string
+  codigo: string
+  cursos: CursoSeccion[]
+}
+
+interface MesInfo {
+  codigo: string
+  nombre: string
+}
+
+interface OpcionesRespuesta {
+  anos: string[]
+  anoSeleccionado: string
+  esAdmin: boolean
+  maestro: Maestro
+  maestros: Maestro[]
+  clases: Clase[]
+  meses: MesInfo[]
+  puedeRegistrar: boolean
+}
+
+interface EstudianteFila {
+  estudianteId: string
+  enrollmentId: string
+  numLista: number
+  nombre: string
+  matricula: string | null
+  porcentaje: number | null | string
+}
+
+interface PlanillaRespuesta {
+  ano: string
+  maestro: Maestro
+  asignatura: { id: string; nombre: string; codigo: string }
+  curso: { id: string; grado: string }
+  seccion: { id: string; seccion: string; etiqueta: string }
+  mes: { codigo: string; nombre: string }
+  estudiantes: EstudianteFila[]
+  puedeRegistrar: boolean
+}
+
+export function Asistencia({ permisos, idDocente }: Props) {
+  const puedeVer = permisos['asistencia.ver'] === true
+  const puedeRegistrar = permisos['asistencia.registrar'] === true
+
+  const [cargandoOpciones, setCargandoOpciones] = useState(true)
+  const [cargandoLista, setCargandoLista] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState('')
+  const [avisoOk, setAvisoOk] = useState('')
+
+  const [anos, setAnos] = useState<string[]>([])
+  const [ano, setAno] = useState('')
+  const [esAdmin, setEsAdmin] = useState(false)
+  const [maestro, setMaestro] = useState<Maestro | null>(null)
+  const [maestros, setMaestros] = useState<Maestro[]>([])
+  const [docenteSeleccionado, setDocenteSeleccionado] = useState(idDocente || '')
+
+  const [clases, setClases] = useState<Clase[]>([])
+  const [claseId, setClaseId] = useState('')
+  const [seccionId, setSeccionId] = useState('')
+
+  const [meses, setMeses] = useState<MesInfo[]>([])
+  const [mes, setMes] = useState('ago')
+
+  const [estudiantes, setEstudiantes] = useState<EstudianteFila[]>([])
+  const [modificado, setModificado] = useState(false)
+
+  // Cursos/secciones disponibles para la clase (asignatura) seleccionada
+  const cursosDisponibles = useMemo(() => {
+    const c = clases.find(item => item.asignaturaId === claseId)
+    return c?.cursos || []
+  }, [clases, claseId])
+
+  // Cargar opciones iniciales (maestro, clases, cursos, meses)
+  useEffect(() => {
+    if (!puedeVer) return
+    let activo = true
+
+    async function cargarInicial() {
+      setCargandoOpciones(true)
+      setError('')
+      try {
+        const query: Record<string, string> = {}
+        if (ano) query.ano = ano
+        if (docenteSeleccionado) query.docenteId = docenteSeleccionado
+
+        const data = await api<OpcionesRespuesta>(`/api/attendance/options?${qs(query)}`)
+        if (!activo) return
+
+        setAnos(data.anos)
+        setAno(data.anoSeleccionado)
+        setEsAdmin(data.esAdmin)
+        setMaestro(data.maestro)
+        setMaestros(data.maestros || [])
+        setMeses(data.meses || [])
+        setClases(data.clases || [])
+
+        // Seleccionar primera clase y sección disponible si no hay seleccionadas
+        if (data.clases.length > 0) {
+          const primeraClase = data.clases[0]
+          setClaseId(primeraClase.asignaturaId)
+          if (primeraClase.cursos.length > 0) {
+            setSeccionId(primeraClase.cursos[0].seccionId)
+          } else {
+            setSeccionId('')
+          }
+        } else {
+          setClaseId('')
+          setSeccionId('')
+          setEstudiantes([])
+        }
+      } catch (err) {
+        if (activo) setError(mensajeDeError(err))
+      } finally {
+        if (activo) setCargandoOpciones(false)
+      }
+    }
+
+    void cargarInicial()
+    return () => {
+      activo = false
+    }
+  }, [puedeVer, ano, docenteSeleccionado])
+
+  // Cuando cambia la clase, sincronizar la sección
+  function alCambiarClase(nuevaClaseId: string) {
+    setClaseId(nuevaClaseId)
+    const encontrada = clases.find(c => c.asignaturaId === nuevaClaseId)
+    if (encontrada && encontrada.cursos.length > 0) {
+      setSeccionId(encontrada.cursos[0].seccionId)
+    } else {
+      setSeccionId('')
+      setEstudiantes([])
+    }
+    setModificado(false)
+    setAvisoOk('')
+  }
+
+  // Cargar lista de estudiantes y asistencias guardadas para la combinación seleccionada
+  useEffect(() => {
+    let activo = true
+
+    if (!ano || !claseId || !seccionId || !mes) {
+      return
+    }
+
+    async function cargarPlanilla() {
+      setCargandoLista(true)
+      setError('')
+      setAvisoOk('')
+      try {
+        const query: Record<string, string> = {
+          ano,
+          asignaturaId: claseId,
+          seccionId,
+          mes,
+        }
+        if (maestro?.id) query.docenteId = maestro.id
+
+        const data = await api<PlanillaRespuesta>(`/api/attendance/sheet?${qs(query)}`)
+        if (!activo) return
+
+        setEstudiantes(
+          data.estudiantes.map(e => ({
+            ...e,
+            porcentaje: e.porcentaje !== null && e.porcentaje !== undefined ? e.porcentaje : '',
+          }))
+        )
+        setModificado(false)
+      } catch (err) {
+        if (activo) setError(mensajeDeError(err))
+      } finally {
+        if (activo) setCargandoLista(false)
+      }
+    }
+
+    void cargarPlanilla()
+    return () => {
+      activo = false
+    }
+  }, [ano, claseId, seccionId, mes, maestro?.id])
+
+  // Modificar asistencia de un estudiante
+  function cambiarPorcentaje(index: number, valor: string) {
+    setEstudiantes(prev => {
+      const copia = [...prev]
+      copia[index] = { ...copia[index], porcentaje: valor }
+      return copia
+    })
+    setModificado(true)
+    setAvisoOk('')
+  }
+
+  // Utilidad: marcar todos 100%
+  function marcarTodos(porcentaje: number) {
+    setEstudiantes(prev => prev.map(e => ({ ...e, porcentaje: porcentaje })))
+    setModificado(true)
+    setAvisoOk('')
+  }
+
+  // Utilidad: limpiar asistencia
+  function limpiarTodos() {
+    setEstudiantes(prev => prev.map(e => ({ ...e, porcentaje: '' })))
+    setModificado(true)
+    setAvisoOk('')
+  }
+
+  // Guardar asistencia mensual
+  async function guardar(e: FormEvent) {
+    e.preventDefault()
+    if (!ano || !claseId || !seccionId || !mes || !maestro) return
+
+    // Validar que los valores sean números enteros entre 0 y 100
+    for (const est of estudiantes) {
+      if (est.porcentaje !== '' && est.porcentaje !== null && est.porcentaje !== undefined) {
+        const n = Number(est.porcentaje)
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 100) {
+          setError(`El valor para ${est.nombre} debe ser un número entero entre 0 y 100.`)
+          return
+        }
+      }
+    }
+
+    setGuardando(true)
+    setError('')
+    setAvisoOk('')
+
+    try {
+      const registros = estudiantes.map(e => ({
+        estudianteId: e.estudianteId,
+        porcentaje: e.porcentaje === '' ? null : Number(e.porcentaje),
+      }))
+
+      const res = await api<{ ok: boolean; guardados: number }>('/api/attendance/sheet', {
+        method: 'POST',
+        body: {
+          ano,
+          docenteId: maestro.id,
+          asignaturaId: claseId,
+          seccionId,
+          mes,
+          registros,
+        },
+      })
+
+      const mesNombre = meses.find(m => m.codigo === mes)?.nombre || mes
+      setAvisoOk(`Asistencia de ${mesNombre} guardada exitosamente (${res.guardados} estudiantes registrados).`)
+      setModificado(false)
+    } catch (err) {
+      setError(mensajeDeError(err))
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  if (!puedeVer) {
+    return (
+      <section className="tarjeta">
+        <h2>Asistencia</h2>
+        <p>No tiene permiso para consultar asistencia.</p>
+      </section>
+    )
+  }
+
+  const mesActualObj = meses.find(m => m.codigo === mes)
+  const claseActualObj = clases.find(c => c.asignaturaId === claseId)
+  const seccionActualObj = cursosDisponibles.find(s => s.seccionId === seccionId)
+
+  return (
+    <section className="asistencia">
+      <header className="tarjeta asistencia-cabecera">
+        <div>
+          <h2>Módulo de Asistencia</h2>
+          <p className="texto-secundario">
+            Registro mensual de asistencia por maestro, clase y sección.
+          </p>
+        </div>
+      </header>
+
+      {/* Banner / Selector de Maestro */}
+      <div className="tarjeta">
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+          <div>
+            <span style={{ fontSize: '13px', color: 'var(--tinta-suave)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>
+              MAESTRO:
+            </span>{' '}
+            <strong style={{ fontSize: '16px', color: 'var(--tinta)' }}>
+              {maestro ? maestro.nombreCompleto : 'Cargando maestro…'}
+            </strong>
+          </div>
+
+          {esAdmin && maestros.length > 0 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+              <span className="texto-secundario">Cambiar maestro (Administración):</span>
+              <select
+                value={docenteSeleccionado || maestro?.id || ''}
+                onChange={e => setDocenteSeleccionado(e.target.value)}
+                style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--borde)' }}
+              >
+                {maestros.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.nombreCompleto}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      </div>
+
+      {/* Selectores principales: Clase -> Curso/Sección -> Mes */}
+      <div className="tarjeta asistencia-filtros">
+        {anos.length > 1 && (
+          <label>
+            Año escolar
+            <select value={ano} onChange={e => setAno(e.target.value)}>
+              {anos.map(y => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <label style={{ minWidth: '220px' }}>
+          <strong>CLASE (Asignatura)</strong>
+          <select
+            value={claseId}
+            onChange={e => alCambiarClase(e.target.value)}
+            disabled={cargandoOpciones || clases.length === 0}
+          >
+            {clases.length === 0 ? (
+              <option value="">(Sin clases asignadas)</option>
+            ) : (
+              clases.map(c => (
+                <option key={c.asignaturaId} value={c.asignaturaId}>
+                  {c.asignatura}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+
+        <label style={{ minWidth: '180px' }}>
+          <strong>CURSO / SECCIÓN</strong>
+          <select
+            value={seccionId}
+            onChange={e => {
+              setSeccionId(e.target.value)
+              setModificado(false)
+              setAvisoOk('')
+            }}
+            disabled={cargandoOpciones || cursosDisponibles.length === 0}
+          >
+            {cursosDisponibles.length === 0 ? (
+              <option value="">(Sin secciones)</option>
+            ) : (
+              cursosDisponibles.map(s => (
+                <option key={s.seccionId} value={s.seccionId}>
+                  {s.etiqueta}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+
+        <label style={{ minWidth: '160px' }}>
+          <strong>MES</strong>
+          <select
+            value={mes}
+            onChange={e => {
+              setMes(e.target.value)
+              setModificado(false)
+              setAvisoOk('')
+            }}
+          >
+            {meses.map(m => (
+              <option key={m.codigo} value={m.codigo}>
+                {m.nombre}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {error && <div className="aviso error" role="alert">{error}</div>}
+      {avisoOk && <div className="aviso ok" role="status">{avisoOk}</div>}
+
+      {/* Planilla de estudiantes */}
+      {cargandoLista ? (
+        <p role="status">Cargando lista de estudiantes…</p>
+      ) : clases.length === 0 ? (
+        <div className="tarjeta">
+          <p className="texto-secundario">El maestro no tiene asignaturas ni cursos activos para el año escolar seleccionado.</p>
+        </div>
+      ) : (
+        <form className="tarjeta asistencia-registro" onSubmit={e => void guardar(e)}>
+          <header>
+            <div>
+              <h3>
+                {claseActualObj?.asignatura || 'Clase'} · {seccionActualObj?.etiqueta || 'Sección'}
+              </h3>
+              <p className="texto-secundario">
+                Mes: <strong>{mesActualObj?.nombre || mes}</strong> · {estudiantes.length} estudiante(s) en la sección
+              </p>
+            </div>
+
+            {puedeRegistrar && estudiantes.length > 0 && (
+              <div className="asistencia-acciones">
+                <button type="button" className="boton secundario" onClick={() => marcarTodos(100)}>
+                  Marcar todos 100%
+                </button>
+                <button type="button" className="boton secundario" onClick={limpiarTodos}>
+                  Limpiar valores
+                </button>
+              </div>
+            )}
+          </header>
+
+          <div className="tabla-contenedor">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: '60px' }}>No.</th>
+                  <th style={{ width: '130px' }}>Matrícula</th>
+                  <th>Estudiante</th>
+                  <th style={{ width: '160px', textAlign: 'center' }}>Asistencia (%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {estudiantes.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', padding: '24px' }}>
+                      No hay estudiantes matriculados en esta sección.
+                    </td>
+                  </tr>
+                ) : (
+                  estudiantes.map((est, i) => (
+                    <tr key={est.estudianteId}>
+                      <td style={{ color: 'var(--tinta-suave)', fontFamily: 'var(--mono)' }}>
+                        {est.numLista}
+                      </td>
+                      <td style={{ fontFamily: 'var(--mono)', fontSize: '13px' }}>
+                        {est.matricula || '—'}
+                      </td>
+                      <td>
+                        <strong>{est.nombre}</strong>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={1}
+                            placeholder="0-100"
+                            disabled={!puedeRegistrar || guardando}
+                            value={est.porcentaje === null ? '' : est.porcentaje}
+                            onChange={e => cambiarPorcentaje(i, e.target.value)}
+                            style={{
+                              width: '80px',
+                              textAlign: 'right',
+                              padding: '6px 8px',
+                              fontFamily: 'var(--mono)',
+                              fontWeight: 600,
+                              borderRadius: '6px',
+                              border: '1px solid var(--borde)',
+                            }}
+                          />
+                          <span style={{ fontSize: '13px', color: 'var(--tinta-suave)' }}>%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {puedeRegistrar && estudiantes.length > 0 && (
+            <div className="asistencia-acciones" style={{ marginTop: '12px' }}>
+              <button
+                type="submit"
+                className="boton primario"
+                disabled={guardando || (!modificado && estudiantes.every(e => e.porcentaje === ''))}
+              >
+                {guardando ? 'Guardando asistencia…' : 'Guardar asistencia'}
+              </button>
+            </div>
+          )}
+        </form>
+      )}
+    </section>
+  )
 }

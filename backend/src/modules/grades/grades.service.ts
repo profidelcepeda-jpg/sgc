@@ -99,6 +99,10 @@ export async function guardarCalificaciones(ctx: Ctx, body: Batch) {
   const ano=texto(body.ano), seccion=texto(body.seccion), asignatura=texto(body.asignatura);
   if (!ano || !seccion || !asignatura || !Array.isArray(body.filas)) throw new ErrorApp('Datos de calificaciones incompletos.','VALIDACION');
   const g=await contextoGrupo_(ctx,ano,seccion,asignatura,true);
+  // Semántica del lote (decisión confirmada): cada estudiante se valida y se
+  // guarda en su propia transacción. Un error en una fila NO revierte las
+  // anteriores: se devuelve `resultados[]` con los errores por estudiante y el
+  // cliente los muestra. No cambiar a todo-o-nada sin revisar la interfaz.
   const out: Array<{estudiante:string; errores:Array<{campo:string;mensaje:string}>}> = [];
   for (const raw of body.filas as Array<Record<string,unknown>>) {
     const id=texto(raw.idEstudiante), changes=(raw.cambios && typeof raw.cambios==='object' ? raw.cambios : {}) as Record<string,unknown>;

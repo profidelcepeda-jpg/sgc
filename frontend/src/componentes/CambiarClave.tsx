@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, mensajeDeError } from '../lib/api'
 import type { CtxSesion } from '../tipos'
+import { LogoInstitucional } from './LogoInstitucional'
 
 interface Props {
   ctx: CtxSesion
@@ -45,7 +46,7 @@ export function CambiarClave({ ctx, onCambiada, onSalir }: Props) {
     <div className="acceso-fondo">
       <div className="acceso-tarjeta acceso-tarjeta-angosta">
         <section className="acceso-marca">
-          <span className="marca-logo">SGA</span>
+          <LogoInstitucional className="logo-acceso" />
           <h1>Cambie su PIN temporal</h1>
           <p>
             Hola, {ctx.nombre}. Su acceso se creó con un PIN temporal y el sistema

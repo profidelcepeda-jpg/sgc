@@ -4,10 +4,13 @@
  * permitir pruebas de integración y arranque independiente.
  *********************************************************************/
 
-import express from 'express';
-import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
+// El .env vive junto al schema de Prisma (SGA/database/.env)
+dotenv.config({ path: path.resolve(__dirname, '../../database/.env') });
+
+import express from 'express';
+import cookieParser from 'cookie-parser';
 import { prisma } from './lib/db';
 import authRoutes from './modules/auth/auth.routes';
 import crudRoutes from './modules/crud/crud.routes';
@@ -20,9 +23,8 @@ import studentsRoutes from './modules/students/students.routes';
 import securityRoutes from './modules/security/security.routes';
 import attendanceRoutes from './modules/attendance/attendance.routes';
 import { ErrorApp, estadoHttpDeCodigo } from './lib/errors';
-
-// El .env vive junto al schema de Prisma (SGA/database/.env)
-dotenv.config({ path: path.resolve(__dirname, '../../database/.env') });
+import { errorDePrisma_ } from './lib/prisma-errors';
+import { requireAuth } from './middleware/auth';
 
 export const app = express();
 app.disable('x-powered-by');
@@ -65,6 +67,24 @@ app.get('/api/health/db', async (_req, res) => {
   }
 });
 
+// Resumen del sistema para el Panel: solo usuarios autenticados.
+// Se mantiene separado de /api/health/db para no exponer conteos sin sesión.
+app.get('/api/health/summary', requireAuth, async (req, res, next) => {
+  try {
+    const fila = await prisma.config.findUnique({ where: { clave: 'ANO_ESCOLAR' }, select: { valor: true } });
+    const ano = fila ? fila.valor : '';
+    const [students, gradeRecords, resultSummaries, config] = await Promise.all([
+      prisma.enrollment.count({ where: { schoolYearId: ano, estado: 'ACTIVO', student: { estado: 'ACTIVO' } } }),
+      prisma.gradeRecord.count({ where: { schoolYearId: ano } }),
+      prisma.resultSummary.count({ where: { schoolYearId: ano } }),
+      prisma.config.count(),
+    ]);
+    res.json({ ok: true, ano, students, gradeRecords, resultSummaries, config });
+  } catch (e) {
+    next(e);
+  }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/crud', crudRoutes);
 app.use('/api/grades', gradesRoutes);
@@ -76,12 +96,35 @@ app.use('/api/students', studentsRoutes);
 app.use('/api/security', securityRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
-// Manejador de errores: ErrorApp → estado HTTP según su código; lo demás → 500
+// 404 del API: siempre JSON, nunca la página HTML por defecto de Express.
+app.use('/api', function (_req, res) {
+  res.status(404).json({ ok: false, error: 'Ruta no encontrada.', codigo: 'NO_ENCONTRADO' });
+});
+
+// Manejador de errores: ErrorApp → estado HTTP según su código; Prisma conocido
+// → 409/404/400 con mensaje legible; cuerpo inválido → 400/413; lo demás → 500.
 app.use((e: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (e instanceof ErrorApp) {
     res.status(estadoHttpDeCodigo(e.codigo)).json({ ok: false, error: e.message, codigo: e.codigo });
     return;
   }
+
+  const dePrisma = errorDePrisma_(e);
+  if (dePrisma) {
+    res.status(estadoHttpDeCodigo(dePrisma.codigo)).json({ ok: false, error: dePrisma.message, codigo: dePrisma.codigo });
+    return;
+  }
+
+  const tipo = (e as { type?: unknown } | null)?.type;
+  if (tipo === 'entity.parse.failed') {
+    res.status(400).json({ ok: false, error: 'El cuerpo de la petición no es JSON válido.', codigo: 'VALIDACION' });
+    return;
+  }
+  if (tipo === 'entity.too.large') {
+    res.status(413).json({ ok: false, error: 'La petición supera el tamaño permitido.', codigo: 'VALIDACION' });
+    return;
+  }
+
   console.error(e);
   // ErrorLog: el legado registraba los errores técnicos y devolvía una referencia.
   const mensaje = e instanceof Error ? e.message : String(e);

@@ -844,3 +844,29 @@ Generar las 35 claves con el mismo bucle (`P{p}C{c}`, `R{p}C{c}`) y tiparlas com
 - **Habilitación estricta de escrituras**: RP solo si P < min (y RP ≥ P); CEC/CEEX/CESP solo si la etapa anterior las habilita; `validarRegistro` recalcula el registro completo para decidirlo.
 - **Situaciones**: REPITENTE con ≥1 área no lograda; PROMOVIDO si todas logradas; PENDIENTE si falta algo. Portada: 0 no logradas → PROMOVIDO; 1–2 → PROMOVIDO_PENDIENTE; ≥3 → APLAZADO; solo si todas las áreas tienen resultado final.
 - **Persistencia**: fila por estudiante+asignatura+**período** (C1..C4/R1..R4/NOTA_ETAPA), clave de grupo `año|sección|asignatura`, permisos por capas (registrar vs editar, período cerrado, asignación docente por período), RESULTADOS derivado recalculado en cada guardado y reconstruible por completo, y asistencia mensual (0–100 %) con promedios por período y anual sobre **solo los períodos con datos**.
+
+---
+
+### Guardado por lotes (POST /api/grades/batch)
+
+La grilla envía todas las celdas editadas en una sola petición:
+
+```json
+{ "ano": "...", "seccion": "...", "asignatura": "...",
+  "filas": [ { "idEstudiante": "...", "cambios": { "P1C1": 85 } } ] }
+```
+
+**Semántica: guardado parcial con informe por fila.** Cada estudiante se valida
+y se persiste en su propia transacción. Si una fila falla, las anteriores ya
+quedaron guardadas y el cliente recibe:
+
+```json
+{ "ok": true, "resultados": [ { "estudiante": "EST-...", "errores": [ { "campo": "R1C1", "mensaje": "..." } ] } ] }
+```
+
+Los estudiantes sin errores no aparecen en `resultados`. Esta decisión es
+deliberada: permite corregir una celda inválida sin perder el resto del trabajo
+del docente. **No debe cambiarse a todo-o-nada sin rediseñar la interfaz**, que
+hoy informa los errores por estudiante. El motor de cálculo no participa en esta
+decisión: se ejecuta igual por estudiante, después de validar la fila.
+

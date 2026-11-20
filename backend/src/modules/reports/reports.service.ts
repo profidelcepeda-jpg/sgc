@@ -39,7 +39,7 @@ function fusionNotas(rows:Array<Record<string,any>>,per:Array<{id:string;tipo:st
     else if(per[i].etapa)n[per[i].etapa==='COMPLETIVA'?'CEC':per[i].etapa==='EXTRAORDINARIA'?'CEEX':'CESP']=r.notaEtapa;
   } return n;
 }
-const centerKeys=['CENTRO','REGIONAL','DISTRITO','CODIGO_CENTRO','DIRECCION_CENTRO','PROVINCIA','MUNICIPIO','TANDA','NIVEL','DIRECTOR'];
+const centerKeys=['CENTRO','REGIONAL','DISTRITO','CODIGO_CENTRO','DIRECCION_CENTRO','PROVINCIA','MUNICIPIO','MODALIDAD','TANDA','NIVEL','DIRECTOR','LOGO_CENTRO'];
 
 const estadosDiarios=['PRESENTE','AUSENTE','TARDANZA','EXCUSADO'] as const;
 function resumenAsistenciaDiaria(marks:Array<{estado:string}>){

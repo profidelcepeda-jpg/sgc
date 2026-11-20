@@ -1,5 +1,8 @@
-// seed.js — Carga seeds/sga-seed.json en la base de datos (idempotente: upsert).
-// Uso: node scripts/seed.js [--recount]
+// seed.js — Carga una semilla en la base de datos (idempotente: upsert).
+// Uso: node scripts/seed.js [--real] [--con-historial]
+//   Por defecto usa seeds/sga-seed.anon.json (datos anonimizados, versionable).
+//   --real usa seeds/sga-seed.json (datos personales reales; solo en local y
+//   fuera de Git). No comparta ni versione ese archivo.
 // Requiere DATABASE_URL (archivo .env junto a prisma/schema.prisma).
 
 const fs = require('fs');
@@ -17,12 +20,24 @@ function jsonVal(v) {
 }
 
 async function main() {
-  const ruta = path.join(__dirname, '..', 'seeds', 'sga-seed.json');
+  const usarReal = process.argv.includes('--real');
+  const archivo = usarReal ? 'sga-seed.json' : 'sga-seed.anon.json';
+  const ruta = path.join(__dirname, '..', 'seeds', archivo);
+
+  if (!fs.existsSync(ruta)) {
+    throw new Error('No existe la semilla ' + archivo + '. Use --real solo si el archivo real esta en local.');
+  }
+  if (usarReal) {
+    console.warn('AVISO: se cargara la semilla con datos personales reales (' + archivo + ').');
+    console.warn('       Ese archivo no debe versionarse ni compartirse.');
+  }
+
   const seed = JSON.parse(fs.readFileSync(ruta, 'utf8'));
   const t = seed.tablas;
   let n = 0;
   const log = (k, v) => { n += v; console.log('  ' + k + ': ' + v); };
 
+  console.log('Semilla: ' + archivo);
   console.log('Cargando seed generado: ' + seed.generado);
 
   for (const r of t.config) {

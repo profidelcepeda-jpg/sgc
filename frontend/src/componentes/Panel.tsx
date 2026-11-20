@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api, mensajeDeError } from '../lib/api'
-import type { CtxSesion, SaludDb } from '../tipos'
-import { MODULOS } from '../modulos'
+import type { CtxSesion, ResumenSistema, SaludDb } from '../tipos'
+import { formatearNumero } from '../lib/formato'
+import { gruposDisponibles } from '../modulos'
+import { Icono } from './Icono'
 
 interface Props {
   ctx: CtxSesion
@@ -9,13 +11,13 @@ interface Props {
 }
 
 function numero(n: number | undefined): string {
-  if (n === undefined || n === null) return '—'
-  return n.toLocaleString('es-DO')
+  return formatearNumero(n, 0)
 }
 
-/** Panel de inicio: estado real de la base y accesos a los módulos permitidos. */
+/** Panel de inicio: estado real de la base y accesos agrupados por área. */
 export function Panel({ ctx, onIr }: Props) {
   const [salud, setSalud] = useState<SaludDb | null>(null)
+  const [resumen, setResumen] = useState<ResumenSistema | null>(null)
   const [error, setError] = useState('')
 
   useEffect(function () {
@@ -25,10 +27,16 @@ export function Panel({ ctx, onIr }: Props) {
     }, function (e) {
       if (vivo) setError(mensajeDeError(e))
     })
+    api<ResumenSistema>('/api/health/summary').then(function (r) {
+      if (vivo) setResumen(r)
+    }, function () {
+      // El indicador de conexión lo decide /api/health/db; si el resumen falla,
+      // las tarjetas quedan vacías sin tapar el estado de la base.
+    })
     return function () { vivo = false }
   }, [])
 
-  const disponibles = MODULOS.filter(function (m) { return ctx.set[m.permiso] === true })
+  const grupos = gruposDisponibles(ctx.set)
 
   return (
     <div className="panel">
@@ -48,22 +56,22 @@ export function Panel({ ctx, onIr }: Props) {
       <section className="rejilla-estadisticas" aria-label="Datos del sistema">
         <article className="tarjeta-estadistica">
           <span className="estadistica-etiqueta">Estudiantes</span>
-          <strong>{numero(salud?.students)}</strong>
-          <small>registrados en el año escolar</small>
+          <strong>{numero(resumen?.students)}</strong>
+          <small>{resumen?.ano ? 'Año escolar ' + resumen.ano : 'Registrados en el año escolar'}</small>
         </article>
         <article className="tarjeta-estadistica">
           <span className="estadistica-etiqueta">Calificaciones</span>
-          <strong>{numero(salud?.gradeRecords)}</strong>
+          <strong>{numero(resumen?.gradeRecords)}</strong>
           <small>notas C1–C4 y recuperaciones</small>
         </article>
         <article className="tarjeta-estadistica">
           <span className="estadistica-etiqueta">Resultados</span>
-          <strong>{numero(salud?.resultSummaries)}</strong>
+          <strong>{numero(resumen?.resultSummaries)}</strong>
           <small>calculados por el motor</small>
         </article>
         <article className="tarjeta-estadistica">
           <span className="estadistica-etiqueta">Configuración</span>
-          <strong>{numero(salud?.config)}</strong>
+          <strong>{numero(resumen?.config)}</strong>
           <small>parámetros del sistema</small>
         </article>
       </section>
@@ -72,20 +80,34 @@ export function Panel({ ctx, onIr }: Props) {
         <header className="seccion-cabecera">
           <div>
             <h3>Módulos disponibles</h3>
-            <p>Funciones habilitadas para su rol.</p>
+            <p>Funciones habilitadas para su rol, organizadas por área.</p>
           </div>
         </header>
-        <div className="rejilla-modulos">
-          {disponibles.map(function (m) {
+
+        <div className="panel-grupos">
+          {grupos.map(function (g) {
             return (
-              <button key={m.id} type="button" className="tarjeta-modulo" onClick={() => onIr(m.id)}>
-                <span className="modulo-sigla">{m.sigla}</span>
-                <span className="modulo-texto">
-                  <strong>{m.et}</strong>
-                  <small>{m.desc}</small>
-                </span>
-                <span className="modulo-flecha" aria-hidden="true">→</span>
-              </button>
+              <section className="panel-grupo" key={g.id}>
+                <header className="panel-grupo-cabecera">
+                  <Icono nombre={g.icono} clase="panel-grupo-icono" />
+                  <h4>{g.et}</h4>
+                  <span>{g.modulos.length} {g.modulos.length === 1 ? 'módulo' : 'módulos'}</span>
+                </header>
+                <div className="rejilla-modulos">
+                  {g.modulos.map(function (m) {
+                    return (
+                      <button key={m.id} type="button" className="tarjeta-modulo" onClick={() => onIr(m.id)}>
+                        <span className="modulo-sigla"><Icono nombre={m.icono} /></span>
+                        <span className="modulo-texto">
+                          <strong>{m.et}</strong>
+                          <small>{m.desc}</small>
+                        </span>
+                        <span className="modulo-flecha" aria-hidden="true">→</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
             )
           })}
         </div>

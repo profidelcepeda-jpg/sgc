@@ -1,35 +1,34 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './lib/api'
 import type { Bootstrap, CtxSesion } from './tipos'
 import { Login } from './componentes/Login'
 import { CambiarClave } from './componentes/CambiarClave'
 import { Disposicion } from './componentes/Disposicion'
+import { EnrutadorModulos } from './componentes/EnrutadorModulos'
+import { LogoInstitucional } from './componentes/LogoInstitucional'
+import { MODULO_POR_ID } from './modulos'
 
-const Panel = lazy(() => import('./componentes/Panel').then(({ Panel }) => ({ default: Panel })))
-const ModuloCrud = lazy(() => import('./componentes/ModuloCrud').then(({ ModuloCrud }) => ({ default: ModuloCrud })))
-const Calificaciones = lazy(() => import('./componentes/Calificaciones').then(({ Calificaciones }) => ({ default: Calificaciones })))
-const Reportes = lazy(() => import('./componentes/Reportes').then(({ Reportes }) => ({ default: Reportes })))
-const Observaciones = lazy(() => import('./componentes/Observaciones').then(({ Observaciones }) => ({ default: Observaciones })))
-const Configuracion = lazy(() => import('./componentes/Configuracion').then(({ Configuracion }) => ({ default: Configuracion })))
-const Consulta = lazy(() => import('./componentes/Consulta').then(({ Consulta }) => ({ default: Consulta })))
-const Estudiantes = lazy(() => import('./componentes/Estudiantes').then(({ Estudiantes }) => ({ default: Estudiantes })))
-const RolesPermisos = lazy(() => import('./componentes/RolesPermisos').then(({ RolesPermisos }) => ({ default: RolesPermisos })))
-const Asistencia = lazy(() => import('./componentes/Asistencia').then(({ Asistencia }) => ({ default: Asistencia })))
+/** Lee el módulo activo de la URL (#/calificaciones) para permitir enlaces directos. */
+function moduloDelHash(): string | null {
+  if (typeof window === 'undefined') return null
+  const valor = window.location.hash.replace(/^#\/?/, '').trim()
+  return valor && valor !== 'panel' ? valor : null
+}
+
+function escribirHash(id: string | null): void {
+  const destino = id ? '#/' + id : '#/'
+  if (window.location.hash !== destino) window.location.hash = destino
+}
 
 export default function App() {
   const [ctx, setCtx] = useState<CtxSesion | null>(null)
   const [cargando, setCargando] = useState(true)
-  const [modulo, setModulo] = useState<string | null>(null)
-  const [estudianteInicial, setEstudianteInicial] = useState<{ id:string; ano:string } | null>(null)
+  const [modulo, setModulo] = useState<string | null>(moduloDelHash)
+  const [estudianteInicial, setEstudianteInicial] = useState<{ id: string; ano: string } | null>(null)
 
   const cargar = useCallback(async function (): Promise<void> {
-    try {
-      const r = await api<Bootstrap>('/api/auth/bootstrap')
-      setCtx(Object.assign({}, r.usuario, { permisos: r.permisos, set: r.set, config: r.config }))
-    } catch {
-      // Sin sesión (o sesión expirada): se muestra el acceso.
-      setCtx(null)
-    }
+    const r = await api<Bootstrap>('/api/auth/bootstrap')
+    setCtx(Object.assign({}, r.usuario, { permisos: r.permisos, set: r.set, config: r.config }))
   }, [])
 
   useEffect(function () {
@@ -48,6 +47,33 @@ export default function App() {
     return function () { vivo = false }
   }, [])
 
+  // Navegación por hash: atrás/adelante y enlaces directos funcionan sin router.
+  useEffect(function () {
+    function alCambiarHash(): void { setModulo(moduloDelHash()) }
+    window.addEventListener('hashchange', alCambiarHash)
+    return function () { window.removeEventListener('hashchange', alCambiarHash) }
+  }, [])
+
+  // Un hash manipulado a mano no debe abrir un módulo sin permiso. El módulo
+  // visible se deriva en el render y el hash inválido se limpia como efecto
+  // externo (sin provocar renders en cascada).
+  useEffect(function () {
+    if (!ctx || modulo === null) return
+    const definicion = MODULO_POR_ID[modulo]
+    if (!definicion || ctx.set[definicion.permiso] !== true) escribirHash(null)
+  }, [ctx, modulo])
+
+  const moduloVisible = (function (): string | null {
+    if (!ctx || modulo === null) return modulo
+    const definicion = MODULO_POR_ID[modulo]
+    return definicion && ctx.set[definicion.permiso] === true ? modulo : null
+  })()
+
+  function irA(id: string | null): void {
+    setModulo(id)
+    escribirHash(id)
+  }
+
   async function salir(): Promise<void> {
     try {
       await api('/api/auth/logout', { method: 'POST' })
@@ -55,13 +81,14 @@ export default function App() {
       // La sesión pudo expirar; de todos modos se vuelve al acceso.
     }
     setCtx(null)
-    setModulo(null)
+    setEstudianteInicial(null)
+    irA(null)
   }
 
   if (cargando) {
     return (
       <div className="pantalla-carga">
-        <span className="marca-logo">SGA</span>
+        <LogoInstitucional className="marca-logo" />
         <p>Cargando el sistema…</p>
       </div>
     )
@@ -74,12 +101,17 @@ export default function App() {
   }
 
   return (
-    <Disposicion ctx={ctx} modulo={modulo} onModulo={setModulo} onSalir={() => void salir()}>
-      <Suspense fallback={<div className="tarjeta" role="status">Cargando módulo…</div>}>
-        {modulo
-          ? modulo === 'estudiantes' ? <Estudiantes key={modulo} permisos={ctx.set} onAbrirConsulta={(id,ano)=>{setEstudianteInicial({id,ano});setModulo('consulta')}} /> : modulo === 'consulta' ? <Consulta key={modulo} permisos={ctx.set} estudianteInicial={estudianteInicial} /> : modulo === 'calificaciones' ? <Calificaciones key={modulo} /> : modulo === 'asistencia' ? <Asistencia key={modulo} permisos={ctx.set} idDocente={ctx.idDocente} /> : modulo === 'reportes' ? <Reportes key={modulo} /> : modulo === 'observaciones' ? <Observaciones key={modulo} /> : modulo === 'configuracion' ? <Configuracion key={modulo} onModulo={setModulo} /> : modulo === 'roles' ? <RolesPermisos key={modulo} permisos={ctx.set} /> : <ModuloCrud key={modulo} modulo={modulo} />
-          : <Panel ctx={ctx} onIr={setModulo} />}
-      </Suspense>
+    <Disposicion ctx={ctx} modulo={moduloVisible} onModulo={irA} onSalir={() => void salir()}>
+      <EnrutadorModulos
+        modulo={moduloVisible}
+        ctx={ctx}
+        onModulo={irA}
+        estudianteInicial={estudianteInicial}
+        onAbrirConsulta={function (id, ano) {
+          setEstudianteInicial({ id: id, ano: ano })
+          irA('consulta')
+        }}
+      />
     </Disposicion>
   )
 }

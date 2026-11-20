@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, mensajeDeError } from '../lib/api'
+import { qs } from '../lib/formato'
 
 type SectionOption={id:string;ano:string;grado:string;seccion:string;etiqueta:string}
 type Options={anos:string[];secciones:SectionOption[];grados:string[]}
@@ -9,7 +10,6 @@ type Listing={items:StudentRow[];total:number;pag:number;paginas:number}
 type Profile={estudiante:{id:string;nombre:string;nombres:string|null;apellidos:string|null;matricula:string|null;sexo:string|null;fechaNacimiento:string|null;estado:string};inscripcion:{ano:string;estado:string;numLista:number};curso:{id:string;grado:string;seccion:string;idSeccion:string}}
 type StudentForm={nombres:string;apellidos:string;matricula:string;sexo:string;fechaNacimiento:string}
 const vacio:StudentForm={nombres:'',apellidos:'',matricula:'',sexo:'',fechaNacimiento:''}
-const qs=(o:Record<string,string|number>)=>new URLSearchParams(Object.entries(o).filter(([,v])=>String(v)).map(([k,v])=>[k,String(v)])).toString()
 
 export function Estudiantes({permisos,onAbrirConsulta}:{permisos:Record<string,true>;onAbrirConsulta:(id:string,ano:string)=>void}){
  const [options,setOptions]=useState<Options>({anos:[],secciones:[],grados:[]}),[ano,setAno]=useState(''),[grado,setGrado]=useState(''),[seccion,setSeccion]=useState(''),[q,setQ]=useState(''),[estado,setEstado]=useState(''),[page,setPage]=useState(1),[listing,setListing]=useState<Listing|null>(null),[profile,setProfile]=useState<Profile|null>(null),[form,setForm]=useState<StudentForm|null>(null),[editing,setEditing]=useState(false),[assigning,setAssigning]=useState<StudentRow|null>(null),[targetSection,setTargetSection]=useState(''),[importOpen,setImportOpen]=useState(false),[importText,setImportText]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false)

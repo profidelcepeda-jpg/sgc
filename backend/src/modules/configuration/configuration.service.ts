@@ -11,7 +11,7 @@ export const TIPOS_OBSERVACION_BASE = [
   { codigo: 'OTRA', nombre: 'Otra', activo: true },
 ] as const;
 
-const CENTRO = ['CENTRO', 'CODIGO_CENTRO', 'REGIONAL', 'DISTRITO', 'DIRECCION_CENTRO', 'PROVINCIA', 'MUNICIPIO', 'TANDA', 'NIVEL', 'DIRECTOR'] as const;
+const CENTRO = ['CENTRO', 'CODIGO_CENTRO', 'REGIONAL', 'DISTRITO', 'DIRECCION_CENTRO', 'PROVINCIA', 'MUNICIPIO', 'MODALIDAD', 'TANDA', 'NIVEL', 'DIRECTOR', 'LOGO_CENTRO'] as const;
 const CALIFICACIONES = ['NOTA_MINIMA', 'NOTA_MAXIMA', 'NOTA_ENTERA', 'PCT_COMPLETIVA_CF', 'PCT_COMPLETIVA_CEC', 'PCT_EXTRA_CF', 'PCT_EXTRA_CE', 'DECIMALES_COMPETENCIA', 'ACTIVAR_RECUPERACION', 'ACTIVAR_COMPLETIVA', 'ACTIVAR_EXTRAORDINARIA', 'ACTIVAR_ESPECIAL'] as const;
 const SEGURIDAD = ['DURACION_SESION_MIN', 'MAX_INTENTOS_LOGIN', 'MINUTOS_BLOQUEO'] as const;
 const VALORES_EDITABLES: Record<string, readonly string[]> = {
@@ -23,7 +23,8 @@ const VALORES_EDITABLES: Record<string, readonly string[]> = {
 const ETIQUETAS: Record<string, string> = {
   NOMBRE_SISTEMA: 'Nombre del sistema', ANO_ESCOLAR: 'Año escolar activo', CENTRO: 'Centro educativo',
   CODIGO_CENTRO: 'Código del centro', REGIONAL: 'Regional', DISTRITO: 'Distrito', DIRECCION_CENTRO: 'Dirección',
-  PROVINCIA: 'Provincia', MUNICIPIO: 'Municipio', TANDA: 'Tanda', NIVEL: 'Nivel', DIRECTOR: 'Director(a)',
+  PROVINCIA: 'Provincia', MUNICIPIO: 'Municipio', MODALIDAD: 'Modalidad', TANDA: 'Tanda / jornada', NIVEL: 'Nivel', DIRECTOR: 'Director(a)',
+  LOGO_CENTRO: 'Logo institucional (alias o ruta local)',
   DURACION_SESION_MIN: 'Duración de sesión (minutos)', MAX_INTENTOS_LOGIN: 'Intentos fallidos antes del bloqueo',
   MINUTOS_BLOQUEO: 'Duración del bloqueo (minutos)', GRADOS: 'Grados disponibles', FILAS_POR_PAGINA: 'Filas por página',
   FORMATO_PAPEL: 'Formato de papel', ORIENTACION_IMPRESION: 'Orientación de impresión',
@@ -33,9 +34,9 @@ const DEFECTOS: Record<string, string> = {
   NOTA_ENTERA: 'SI', PCT_COMPLETIVA_CF: '50', PCT_COMPLETIVA_CEC: '50', PCT_EXTRA_CF: '30', PCT_EXTRA_CE: '70',
   DECIMALES_COMPETENCIA: '1', ACTIVAR_RECUPERACION: 'SI', ACTIVAR_COMPLETIVA: 'SI', ACTIVAR_EXTRAORDINARIA: 'SI',
   ACTIVAR_ESPECIAL: 'SI', GRADOS: '1ro,2do,3ro,4to,5to,6to', DURACION_SESION_MIN: '480', MAX_INTENTOS_LOGIN: '5',
-  MINUTOS_BLOQUEO: '10', FILAS_POR_PAGINA: '20', NIVEL: 'Secundaria', FORMATO_PAPEL: 'A4', ORIENTACION_IMPRESION: 'LANDSCAPE',
+  MINUTOS_BLOQUEO: '10', FILAS_POR_PAGINA: '20', NIVEL: 'Secundaria', LOGO_CENTRO: 'logo_liceo.jpg', FORMATO_PAPEL: 'A4', ORIENTACION_IMPRESION: 'LANDSCAPE',
 };
-const CENTRO_DEFAULTS: Record<string, string> = { CENTRO: '', CODIGO_CENTRO: '', REGIONAL: '', DISTRITO: '', DIRECCION_CENTRO: '', PROVINCIA: '', MUNICIPIO: '', TANDA: '', NIVEL: 'Secundaria', DIRECTOR: '' };
+const CENTRO_DEFAULTS: Record<string, string> = { CENTRO: '', CODIGO_CENTRO: '', REGIONAL: '', DISTRITO: '', DIRECCION_CENTRO: '', PROVINCIA: '', MUNICIPIO: '', MODALIDAD: '', TANDA: '', NIVEL: 'Secundaria', DIRECTOR: '', LOGO_CENTRO: 'logo_liceo.jpg' };
 
 function exigirAdmin(ctx: Ctx) {
   if (ctx.set['configuracion.administrar'] !== true) throw new ErrorApp('No tiene permiso para administrar la configuración.', 'PERMISO');
@@ -54,6 +55,12 @@ function fecha(v: unknown, campo: string): string {
   return s;
 }
 function validarValor(clave: string, valor: unknown): string {
+  if (clave === 'LOGO_CENTRO') {
+    const ruta = texto(valor, 250);
+    if (ruta !== 'logo_liceo.jpg' && (!ruta.startsWith('/') || ruta.startsWith('//') || ruta.split('/').includes('..')))
+      throw new ErrorApp('El logo debe ser el archivo institucional actual o una ruta local del sitio.', 'VALIDACION');
+    return ruta;
+  }
   if (clave === 'FORMATO_PAPEL' && !['A4', 'LETTER', 'LEGAL'].includes(String(valor).toUpperCase())) throw new ErrorApp('El formato de papel debe ser A4, LETTER o LEGAL.', 'VALIDACION');
   if (clave === 'ORIENTACION_IMPRESION' && !['LANDSCAPE', 'PORTRAIT'].includes(String(valor).toUpperCase())) throw new ErrorApp('La orientación debe ser LANDSCAPE o PORTRAIT.', 'VALIDACION');
   if (clave === 'FORMATO_PAPEL' || clave === 'ORIENTACION_IMPRESION') return String(valor).toUpperCase();

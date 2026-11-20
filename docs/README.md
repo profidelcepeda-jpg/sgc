@@ -8,6 +8,10 @@
 - `architecture/`
   - `api-y-seguridad-legacy.md` — rutas de la API, autenticación, sesiones, permisos, CRUD declarativo, vistas del SPA y traducción a REST.
   - `modulos-funcionales-legacy.md` — reglas de negocio por módulo y estructura del boletín.
+  - `navegacion-modulos.md` — estructura funcional, catálogo único de módulos, permisos y navegación del frontend actual.
+  - `politica-alcance.md` — política de permisos y alcance académico del CRUD, con la matriz permiso → alcance.
+- `security/`
+  - `datos-personales.md` — tratamiento de la semilla con datos reales y reglas de privacidad del repositorio.
 - `database/`
   - `modelo-datos-legacy.md` — hojas, columnas, relaciones, IDs, configuración, roles/permisos y mapeo a PostgreSQL.
   - `analisis-datos-reales.md` — análisis del Excel real (SGAp_Base_de_Datos.xlsx): integridad, volúmenes, calidad de datos y hallazgos.
@@ -35,9 +39,9 @@ Set-Location SGA\frontend
 npm.cmd run dev          # http://localhost:5173  (proxy /api -> 4000)
 ```
 
-Abrir <http://localhost:5173> e iniciar sesión con el usuario **`admin`** y el PIN
-**`4821`** (acceso de demostración creado con
-`npx.cmd tsx scripts/crear-acceso.ts admin 4821 --permanente` desde `SGA/backend`).
+Abrir <http://localhost:5173> e iniciar sesión con el usuario **`admin`**. El PIN no se
+documenta en el repositorio: se crea o restablece con
+`npx.cmd tsx scripts/crear-acceso.ts admin <PIN> --permanente` desde `SGA/backend`.
 Sin `--permanente`, el PIN es temporal y el sistema obliga a cambiarlo al entrar.
 
 Comprobaciones útiles:
@@ -54,7 +58,7 @@ Pruebas y verificación (desde `SGA/backend`):
 
 ```powershell
 npm.cmd run build
-npx.cmd vitest run                 # 60/60 (24 golden + 12 seguridad + 24 CRUD)
+npx.cmd vitest run                 # 123 pruebas (golden, seguridad, CRUD y módulos)
 npx.cmd tsx scripts/verificar-crud.ts    # contra la BD real, revierte cada escritura
 ```
 
@@ -63,7 +67,7 @@ npx.cmd tsx scripts/verificar-crud.ts    # contra la BD real, revierte cada escr
 | Fase | Estado |
 |---|---|
 | 1. Auditoría del sistema original | ✅ Completada |
-| 2. Diseño de la base de datos | ✅ Completada: PostgreSQL 18 local (`sga_db`), esquema validado, **6 migraciones** aplicadas, seed real cargado (6 041 filas) y CHECK 0–100 completos (C1..C4, R1..R4, etapas y C.F.) |
+| 2. Diseño de la base de datos | ✅ Completada: PostgreSQL 18 local (`sga_db`), esquema validado, **7 migraciones** aplicadas y CHECK 0–100 completos (C1..C4, R1..R4, etapas y C.F.). La semilla versionada es la anonimizada; la real queda fuera de Git |
 | 3. Backend | 🔄 En curso: **motor de calificaciones** (24 golden tests + paridad 2/2 contra producción), **autenticación completa** (login con bloqueo por intentos, sesiones httpOnly, permisos efectivos, cambio de PIN y bloqueo por clave temporal; 12 tests), **motor CRUD declarativo** (8 módulos, 21 tests puros) y **verificación contra la BD real** (`scripts/verificar-crud.ts`). Total **60/60 tests**. Falta persistencia de calificaciones/asistencia y módulos REST de estudiantes/reportes |
 | 4. Frontend | 🔄 En curso: login con cambio obligatorio de PIN, panel con estado real de la BD y los **8 módulos CRUD** (listar/buscar/filtrar/paginar, alta, edición, estados, restablecer PIN, accesos de docentes y copia de períodos) sobre React + Vite |
 | 5. Boletines y reportes | ⬜ |

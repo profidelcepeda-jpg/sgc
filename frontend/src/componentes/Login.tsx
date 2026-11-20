@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, mensajeDeError } from '../lib/api'
 import type { Perfil } from '../tipos'
+import { LogoInstitucional } from './LogoInstitucional'
 
 interface Props {
   onEntrar: () => Promise<void>
@@ -40,7 +41,7 @@ export function Login({ onEntrar }: Props) {
     <div className="acceso-fondo">
       <div className="acceso-tarjeta">
         <section className="acceso-marca">
-          <span className="marca-logo">SGA</span>
+          <LogoInstitucional className="logo-acceso" />
           <h1>Sistema de Gestión Académica</h1>
           <p>
             Calificaciones, estudiantes, docentes y cursos en un solo lugar.

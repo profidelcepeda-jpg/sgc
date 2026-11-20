@@ -13,6 +13,10 @@
 !**/.env.example
 !**/.env.sample
 
+# Semilla con datos academicos personales reales.
+# En el repositorio solo vive sga-seed.anon.json (datos anonimizados).
+database/seeds/sga-seed.json
+
 # Registros
 **/*.log
 npm-debug.log*

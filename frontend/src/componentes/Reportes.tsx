@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { api, mensajeDeError } from '../lib/api'
+import { LogoInstitucional } from './LogoInstitucional'
 import type { DatosCursoReporte, ObservacionItem, ReportOpcion } from '../tipos'
 
-type Tipo='dashboard'|'entrega'|'registro'|'boletin'|'pendientes'|'situacion'|'historial'|'expediente'
+type Tipo='dashboard'|'entrega'|'registro'|'boletin'|'boletin-final-portada'|'pendientes'|'situacion'|'historial'|'expediente'
 interface Dashboard { curso:{ano:string;grado:string;seccion:string};periodo:number;min:number;totalEstudiantes:number;promedioGeneral:number|null;porcentajeAprobando:number|null;enRiesgo:Array<{id:string;nombre:string;promedio:number|null;riesgo:string[]}>;mejor:Array<{nombre:string;promedio:number|null;riesgo:string[]}>;porAsignatura:Array<{id:string;nombre:string;periodos:Array<number|null>}>;distribucion:number[];situacion:Record<string,number>;estudiantesPendientes:number;estudiantesEnRecuperacion:number;estudiantesCompletiva:number;estudiantesExtraordinaria:number;estudiantesEspecial:number }
 interface Historial {ano:string;curso:string;situacion:string}
 interface Expediente {curso:DatosCursoReporte;estudiante:DatosCursoReporte['estudiantes'][number];observaciones:ObservacionItem[]|null}
-const TIPOS:Array<{id:Tipo;nombre:string}>= [{id:'dashboard',nombre:'Dashboard de rendimiento'},{id:'entrega',nombre:'Entrega de calificaciones P1–P3'},{id:'registro',nombre:'Registro por asignatura'},{id:'boletin',nombre:'Boletín final'},{id:'pendientes',nombre:'Pendientes y recuperaciones'},{id:'situacion',nombre:'Situación final del curso'},{id:'historial',nombre:'Historial académico del estudiante'},{id:'expediente',nombre:'Expediente individual'}]
+const TIPOS:Array<{id:Tipo;nombre:string}>= [{id:'dashboard',nombre:'Dashboard de rendimiento'},{id:'entrega',nombre:'Entrega de calificaciones P1–P3'},{id:'registro',nombre:'Registro por asignatura'},{id:'boletin',nombre:'Boletín final'},{id:'boletin-final-portada',nombre:'Boletín final con portada'},{id:'pendientes',nombre:'Pendientes y recuperaciones'},{id:'situacion',nombre:'Situación final del curso'},{id:'historial',nombre:'Historial académico del estudiante'},{id:'expediente',nombre:'Expediente individual'}]
 const fmt=(x:number|null|undefined,d=1)=>x==null?'—':x.toLocaleString('es-DO',{maximumFractionDigits:d})
 const cells=(row:unknown[])=>row.map((x,i)=><td key={i}>{String(x??'—')}</td>)
+const MESES_REPORTE:Record<string,string>={ene:'Ene',enero:'Ene',feb:'Feb',febrero:'Feb',mar:'Mar',marzo:'Mar',abr:'Abr',abril:'Abr',may:'May',mayo:'May',jun:'Jun',junio:'Jun',jul:'Jul',julio:'Jul',ago:'Ago',agosto:'Ago',sep:'Sept',sept:'Sept',set:'Sept',septiembre:'Sept',setiembre:'Sept',oct:'Oct',octubre:'Oct',nov:'Nov',noviembre:'Nov',dic:'Dic',diciembre:'Dic'}
+function mesesPeriodo(meses:string[]){return meses.map(m=>MESES_REPORTE[m.trim().toLocaleLowerCase('es')]||m.trim()).join(' – ')}
 
 export function Reportes(){
  const [opciones,setOpciones]=useState<ReportOpcion[]>([]),[grupo,setGrupo]=useState(''),[tipo,setTipo]=useState<Tipo>('dashboard'),[periodo,setPeriodo]=useState(1),[asignatura,setAsignatura]=useState(''),[estudiante,setEstudiante]=useState('')
@@ -21,16 +24,16 @@ export function Reportes(){
   catch(e){setError(mensajeDeError(e))}finally{setCargando(false)}}
  function descargarCsv(){const tables=salida.current?.querySelectorAll('table');if(!tables?.length){setError('El reporte actual no contiene una tabla exportable.');return}const csv=Array.from(tables).map(table=>Array.from(table.rows).map(row=>Array.from(row.cells).map(cell=>'"'+cell.innerText.replace(/"/g,'""').replace(/\s+/g,' ').trim()+'"').join(';')).join('\r\n')).join('\r\n\r\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`reporte_${tipo}_${opcion?.ano}_${opcion?.etiqueta.split('·').pop()?.trim().replace(/\s+/g,'_')||''}.csv`;a.click();URL.revokeObjectURL(url)}
  const print=()=>window.print()
- const formato=curso?.formato||{papel:'A4',orientacion:'LANDSCAPE'}
+ const formato=tipo==='boletin-final-portada'?{papel:'LETTER',orientacion:'LANDSCAPE'}:curso?.formato||{papel:'A4',orientacion:'LANDSCAPE'}
  return <section className={`reportes pagina-${formato.papel.toLowerCase()}-${formato.orientacion.toLowerCase()}`}>
   <div className="tarjeta reportes-filtros no-print"><div><h2>Reportes académicos</h2><p className="texto-secundario">Los cálculos se generan en el backend con el motor académico del SGA.</p></div>
    <label>Año y sección<select value={grupo} onChange={e=>cambiarGrupo(e.target.value)}><option value="">Seleccione…</option>{opciones.map(o=><option key={o.ano+'|'+o.seccion} value={o.ano+'|'+o.seccion}>{o.etiqueta}</option>)}</select></label>
    <label>Reporte<select value={tipo} onChange={e=>{setTipo(e.target.value as Tipo);setPeriodo(1);setDashboard(null);setHistorial([]);setExpediente(null);setMostrar(false)}}>{TIPOS.map(t=><option key={t.id} value={t.id}>{t.nombre}</option>)}</select></label>
-   {tipo!=='situacion'&&tipo!=='boletin'&&tipo!=='historial'&&tipo!=='expediente'&&<label>Período<select value={periodo} onChange={e=>setPeriodo(Number(e.target.value))}>{tipo==='registro'&&<option value={0}>Todos / anual</option>}{(tipo==='entrega'?[1,2,3]:[1,2,3,4]).map(p=><option key={p} value={p}>P{p}</option>)}</select></label>}
+   {tipo!=='situacion'&&tipo!=='boletin'&&tipo!=='boletin-final-portada'&&tipo!=='historial'&&tipo!=='expediente'&&<label>Período<select value={periodo} onChange={e=>setPeriodo(Number(e.target.value))}>{tipo==='registro'&&<option value={0}>Todos / anual</option>}{(tipo==='entrega'?[1,2,3]:[1,2,3,4]).map(p=><option key={p} value={p}>P{p}</option>)}</select></label>}
    {tipo==='registro'&&<label>Asignatura<select value={asignatura} onChange={e=>setAsignatura(e.target.value)}><option value="">Seleccione…</option>{curso?.asignaturas.map(a=><option key={a.id} value={a.id}>{a.nombre}</option>)}</select></label>}
-   {(tipo==='boletin'||tipo==='historial'||tipo==='expediente')&&<label>Estudiante<select value={estudiante} onChange={e=>setEstudiante(e.target.value)}><option value="">Seleccione…</option>{curso?.estudiantes.map(e=><option key={e.idEstudiante} value={e.idEstudiante}>{e.num}. {e.nombre}</option>)}</select></label>}
-   <button className="boton primario" onClick={()=>void generar()} disabled={!opcion||cargando||(tipo==='registro'&&!asignatura)||((tipo==='boletin'||tipo==='historial'||tipo==='expediente')&&!estudiante)}>{cargando?'Generando…':'Generar reporte'}</button>
-   {mostrar&&<><button className="boton secundario" onClick={print}>Imprimir / Guardar PDF</button><button className="boton secundario" onClick={descargarCsv}>Exportar CSV</button></>}
+   {(tipo==='boletin'||tipo==='boletin-final-portada'||tipo==='historial'||tipo==='expediente')&&<label>Estudiante<select value={estudiante} onChange={e=>setEstudiante(e.target.value)}><option value="">{tipo==='historial'||tipo==='expediente'?'Seleccione…':'Todos los estudiantes'}</option>{curso?.estudiantes.map(e=><option key={e.idEstudiante} value={e.idEstudiante}>{e.num}. {e.nombre}</option>)}</select></label>}
+   <button className="boton primario" onClick={()=>void generar()} disabled={!opcion||cargando||(tipo==='registro'&&!asignatura)||((tipo==='boletin'||tipo==='historial'||tipo==='expediente')&&!estudiante)}>{cargando?'Generando…':tipo==='boletin'||tipo==='boletin-final-portada'?'Generar vista previa':'Generar reporte'}</button>
+   {mostrar&&<><button className="boton secundario" onClick={print}>{tipo==='boletin-final-portada'?'Descargar PDF / Imprimir':'Imprimir / Guardar PDF'}</button>{tipo!=='boletin-final-portada'&&<button className="boton secundario" onClick={descargarCsv}>Exportar CSV</button>}</>}
   </div>
   {error&&<p className="error-calificaciones no-print">{error}</p>}
   <div ref={salida} className="reportes-salida">{mostrar&&dashboard&&<VistaDashboard data={dashboard}/>}{mostrar&&historial.length>0&&tipo==='historial'&&<VistaHistorial items={historial} estudiante={curso?.estudiantes.find(e=>e.idEstudiante===estudiante)?.nombre||estudiante}/>}{mostrar&&expediente&&tipo==='expediente'&&<VistaExpediente data={expediente}/>}{mostrar&&curso&&tipo!=='historial'&&tipo!=='expediente'&&<VistaCurso data={curso} tipo={tipo} periodo={periodo} asignatura={asignatura} estudiante={estudiante}/>}</div>
@@ -51,5 +54,96 @@ function VistaCurso({data:d,tipo,periodo,asignatura,estudiante}:{data:DatosCurso
  if(tipo==='registro')return <article className="reporte-hoja">{encabezado}{asigs.map(a=><section key={a.id}><h3>{a.nombre} · Docentes: {a.docentes.join(', ')||'—'}</h3><table><thead><tr>{cells(['No.','Estudiante',...Array.from({length:periodo===0?4:1},(_,i)=>{const p=periodo||i+1;return Array.from({length:a.competencias.length},(_,c)=>[`P${p}C${c+1}`,`R${p}C${c+1}`]).flat()}).flat(),...(periodo===0?['PC1','PC2','PC3','PC4','CF','CEC','CCF','CEEX','CEXF','CESP','A','R']:[])])}</tr></thead><tbody>{d.estudiantes.map(e=>{const x=e.registros[a.id];return <tr key={e.idEstudiante}>{cells([e.num,e.nombre,...Array.from({length:periodo===0?4:1},(_,i)=>{const p=periodo||i+1;return Array.from({length:a.competencias.length},(_,c)=>[x.notas[`P${p}C${c+1}`],x.notas[`R${p}C${c+1}`]]).flat()}).flat(),...(periodo===0?[...x.calc.pcMostrar,x.calc.cf,x.notas.CEC,x.calc.comp.ccf,x.notas.CEEX,x.calc.ext.cexf,x.notas.CESP,x.calc.A,x.calc.R]:[])])}</tr>})}</tbody></table></section>)}</article>
  if(tipo==='pendientes')return <article className="reporte-hoja">{encabezado}<p>P{periodo} · recuperaciones y notas pendientes</p><table><thead><tr>{cells(['No.','Estudiante','Asignatura','Competencia','P','RP','Estado'])}</tr></thead><tbody>{d.estudiantes.flatMap(e=>asigs.flatMap(a=>{const x=e.registros[a.id],pr=x.calc.periodos[periodo-1];const notas=Array.from({length:a.competencias.length},(_,i)=>{const p=x.notas[`P${periodo}C${i+1}`],r=x.notas[`R${periodo}C${i+1}`];return p!==null&&p<d.min?[e.num,e.nombre,a.nombre,a.competencias[i]?.abrev||`C${i+1}`,p,r??'',r===null?'RP pendiente':r>=d.min?'Recuperada':`RP < ${d.min}`]:null}).filter((v):v is (string|number)[]=>v!==null);if(pr.ingresadas<4)notas.push([e.num,e.nombre,a.nombre,'Notas faltantes',`${pr.ingresadas}/4`,'','Pendiente']);return notas.map((row,i)=><tr key={`${e.idEstudiante}${a.id}${i}`}>{cells(row)}</tr>)}))}</tbody></table></article>
  if(tipo==='situacion')return <article className="reporte-hoja">{encabezado}<table><thead><tr>{cells(['No.','Estudiante',...asigs.map(a=>a.abrev),'Situación'])}</tr></thead><tbody>{d.estudiantes.map(e=><tr key={e.idEstudiante}>{cells([e.num,e.nombre,...asigs.map(a=>{const c=e.registros[a.id].calc;return c.A??(c.R!==null?`${c.R} R`:c.estado)}),e.situacion])}</tr>)}</tbody></table></article>
+ if(tipo==='boletin-final-portada')return <VistaBoletinFinalPortada data={d} estudiante={estudiante}/>
  return <article className="reporte-hoja boletin-reporte">{estudianteSel.map(e=><section className="boletin-hoja" key={e.idEstudiante}>{encabezado}<h3>Boletín de calificaciones · {e.num}. {e.nombre}</h3><table><thead><tr>{cells(['Asignatura',...Array.from({length:4},(_,i)=>`P${i+1}`),'PC1','PC2','PC3','PC4','CF','CEC','CCF','CEEX','CEXF','CESP','A','R'])}</tr></thead><tbody>{asigs.slice().sort((a,b)=>a.ordenBoletin-b.ordenBoletin).map(a=>{const x=e.registros[a.id];return <tr key={a.id}>{cells([a.nombreReporte,...Array.from({length:4},(_,i)=>x.calc.vigente[i]?.join(' / ')),...x.calc.pcMostrar,x.calc.cf,x.notas.CEC,x.calc.comp.ccf,x.notas.CEEX,x.calc.ext.cexf,x.notas.CESP,x.calc.A,x.calc.R])}</tr>})}</tbody></table><h3>Asistencia mensual histórica</h3><table><thead><tr>{cells(['P1','P2','P3','P4','Anual'])}</tr></thead><tbody><tr>{cells([1,2,3,4].map(p=>fmt(e.asistencia.periodos[p])).concat(fmt(e.asistencia.anual)))}</tr></tbody></table>{e.asistenciaDiaria&&<p>Asistencia diaria: {e.asistenciaDiaria.resumen.PRESENTE} presentes · {e.asistenciaDiaria.resumen.AUSENTE} ausentes · {e.asistenciaDiaria.resumen.TARDANZA} tardanzas · {e.asistenciaDiaria.resumen.EXCUSADO} excusados · {fmt(e.asistenciaDiaria.resumen.porcentaje)}%</p>}<p>Situación: {e.situacion} · Situación portada: {e.situacionPortada}</p></section>)}</article>
+}
+
+const GRADOS_PORTADA=[
+ {numero:'1',sufijo:'ro',nombre:'Primero',ciclo:'PRIMER CICLO',alias:['1','1ro','1er','primero','primer']},
+ {numero:'2',sufijo:'do',nombre:'Segundo',ciclo:'PRIMER CICLO',alias:['2','2do','segundo']},
+ {numero:'3',sufijo:'ro',nombre:'Tercero',ciclo:'PRIMER CICLO',alias:['3','3ro','3er','tercero','tercer']},
+ {numero:'4',sufijo:'to',nombre:'Cuarto',ciclo:'SEGUNDO CICLO',alias:['4','4to','cuarto']},
+ {numero:'5',sufijo:'to',nombre:'Quinto',ciclo:'SEGUNDO CICLO',alias:['5','5to','quinto']},
+ {numero:'6',sufijo:'to',nombre:'Sexto',ciclo:'SEGUNDO CICLO',alias:['6','6to','sexto']},
+]
+function gradoPortada(grado:string){const clave=grado.trim().toLocaleLowerCase('es').replace(/\s+grado$/,'');return GRADOS_PORTADA.find(g=>g.alias.includes(clave))}
+function separarNombresPortada(e:DatosCursoReporte['estudiantes'][number]){
+ let nombres=(e.nombres||'').trim(),apellidos=(e.apellidos||'').trim()
+ if((!nombres||!apellidos)&&e.nombre){const i=e.nombre.indexOf(',');if(i>=0){if(!apellidos)apellidos=e.nombre.slice(0,i).trim();if(!nombres)nombres=e.nombre.slice(i+1).trim()}else if(!nombres)nombres=e.nombre.trim()}
+ return {nombres,apellidos}
+}
+function codigoPortada(valor:string){const m=/^\s*([0-9][0-9-]*)\s*[-–]?\s*(.*)$/.exec(valor||'');return m?[m[1].replace(/-$/,''),m[2]]:['',valor||'']}
+function nivelPortada(nivel:string){if(/secund/i.test(nivel))return 'NIVEL SECUNDARIO';if(/prim/i.test(nivel))return 'NIVEL PRIMARIO';return `NIVEL ${nivel}`.trim().toLocaleUpperCase('es')}
+
+function VistaBoletinFinalPortada({data:d,estudiante}:{data:DatosCursoReporte;estudiante:string}){
+ const estudiantes=estudiante?d.estudiantes.filter(e=>e.idEstudiante===estudiante):d.estudiantes
+ if(!estudiantes.length)return <article className="reporte-hoja"><p>No hay estudiantes activos para generar boletines.</p></article>
+ const paginas=estudiantes.flatMap(e=>[{tipo:'portada' as const,e},{tipo:'notas' as const,e}])
+ return <div className="boletin-final-documento">{paginas.map((p,i)=>p.tipo==='portada'
+  ?<PortadaBoletin key={`p-${p.e.idEstudiante}`} data={d} estudiante={p.e} salto={i<paginas.length-1}/>
+  :<PaginaNotasFinales key={`n-${p.e.idEstudiante}`} data={d} estudiante={p.e} salto={i<paginas.length-1}/>)}</div>
+}
+
+function PortadaBoletin({data:d,estudiante:e,salto}:{data:DatosCursoReporte;estudiante:DatosCursoReporte['estudiantes'][number];salto:boolean}){
+ const c=d.centro,g=gradoPortada(d.grado),n=separarNombresPortada(e),dis=codigoPortada(c.DISTRITO),reg=codigoPortada(c.REGIONAL)
+ const lineaCentro=c.MODALIDAD||c.TANDA
+ const valor=(label:string,text:string)=><div className="boletin-portada-campo"><span className="boletin-portada-etiqueta">{label}</span><span className="boletin-portada-valor">{text}</span></div>
+ return <section className={`boletin-portada-pagina${salto?' salto':''}`}><div className="boletin-portada-spread">
+  <aside className="boletin-portada-mitad boletin-portada-izquierda">
+   <div className="boletin-portada-banda">Firma del padre, madre o tutor</div>
+   <div className="boletin-portada-titulo-periodos">Períodos de Reportes de Calificaciones</div>
+   {d.periodos.map((p,i)=><div className="boletin-portada-periodo" key={p.id}><span>{mesesPeriodo(p.meses)||p.codigo||`P${i+1}`}</span><i/></div>)}
+   <div className="boletin-portada-banda boletin-portada-situacion-titulo">Situación del estudiante</div>
+   <table className="boletin-portada-situacion-tabla"><tbody><tr><th>Promovido/a</th><th>Promovido con asignatura pendiente</th><th>Aplazado</th></tr><tr>
+    <td className="boletin-portada-marca">{e.situacionPortada==='PROMOVIDO'?'X':''}</td><td className="boletin-portada-marca">{e.situacionPortada==='PROMOVIDO_PENDIENTE'?'X':''}</td><td className="boletin-portada-marca">{e.situacionPortada==='APLAZADO'?'X':''}</td>
+   </tr></tbody></table>
+   <div className="boletin-portada-observaciones-etiqueta">Observaciones:</div><div className="boletin-portada-lineas-observaciones">{Array.from({length:5},(_,i)=><i key={i}/>)}</div>
+   <div className="boletin-portada-firmas"><div><div className="boletin-portada-nombre-firma">{d.tutor}</div><div className="boletin-portada-linea-firma">Maestro/a encargado/a del curso</div></div><div><div className="boletin-portada-nombre-firma">{c.DIRECTOR}</div><div className="boletin-portada-linea-firma">Director/a del Centro</div></div></div>
+  </aside>
+  <section className="boletin-portada-mitad boletin-portada-derecha">
+   <div className="boletin-portada-logos"><LogoInstitucional className="boletin-portada-logo" src={c.LOGO_CENTRO}/></div>
+   <div className="boletin-portada-marca"><span className="boletin-portada-marca-superior">Centro Educativo{lineaCentro?` de ${lineaCentro}`:''}</span><b className="boletin-portada-centro">{c.CENTRO}</b>{c.LEMA_CENTRO&&<span className="boletin-portada-lema">{c.LEMA_CENTRO}</span>}</div>
+   <div className="boletin-portada-titulo">Boletín de Calificaciones</div>
+   <div className="boletin-portada-insignia"><div className="boletin-portada-numero">{g?.numero}<sup>{g?.sufijo}</sup></div><div className="boletin-portada-grado">Grado</div><div className="boletin-portada-ciclo"><b>{g?.ciclo||''}</b><small>{nivelPortada(c.NIVEL||'')}</small></div></div>
+   <div className="boletin-portada-formulario">
+    <div className="boletin-portada-cabecera-dos"><div className="boletin-portada-campo boletin-portada-campo-flex"><span className="boletin-portada-etiqueta">Año escolar</span><span className="boletin-portada-valor">{d.ano.replace('-',' - ')}</span></div></div>
+    <div className="boletin-portada-cabecera-dos"><div className="boletin-portada-campo boletin-portada-campo-seccion"><span className="boletin-portada-etiqueta">Sección</span><span className="boletin-portada-valor">{d.seccion}</span></div><div className="boletin-portada-campo boletin-portada-campo-flex"><span className="boletin-portada-etiqueta">Número de orden</span><span className="boletin-portada-valor">{e.num}</span></div></div>
+    {valor('Nombres:',n.nombres)}{valor('Apellidos',n.apellidos)}
+    <div className="boletin-portada-campo boletin-portada-campo-dos"><div className="boletin-portada-etiqueta-lateral">Nombre del centro</div><div className="boletin-portada-campo"><span className="boletin-portada-etiqueta">Educativo</span><span className="boletin-portada-valor">{c.CENTRO}</span></div></div>
+    <div className="boletin-portada-campo"><span className="boletin-portada-etiqueta">Código del centro</span><span className="boletin-portada-valor boletin-portada-codigo boletin-portada-codigo-centro">{c.CODIGO_CENTRO}</span></div>
+    <div className="boletin-portada-campo boletin-portada-campo-dos"><div className="boletin-portada-etiqueta-lateral">Dirección del centro</div><div className="boletin-portada-campo"><span className="boletin-portada-etiqueta">Educativo</span><span className="boletin-portada-valor">{c.DIRECCION_CENTRO}</span></div></div>
+    <div className="boletin-portada-campo"><span className="boletin-portada-etiqueta">Distrito educativo</span><span className="boletin-portada-valor boletin-portada-codigo">{dis[0]}</span><span className="boletin-portada-separador">DE</span><span className="boletin-portada-valor">{dis[1]}</span></div>
+    <div className="boletin-portada-campo"><span className="boletin-portada-etiqueta">Dirección Regional de Educación</span><span className="boletin-portada-valor boletin-portada-codigo boletin-portada-regional">{reg[0]}</span><span className="boletin-portada-separador">DE</span><span className="boletin-portada-valor">{reg[1]}</span></div>
+   </div>
+  </section>
+ </div></section>
+}
+
+const CAMPOS_COMPLETIVA=['50% C.F.','C.E.C.','50% C.E.C.','C.C.F.']
+const CAMPOS_EXTRAORDINARIA=['30% C.F.','C.E.EX','70% C.E.EX','C.EX.F.']
+const LEYENDA_FINAL=[['(P1)','Período 1'],['(P2)','Período 2'],['(P3)','Período 3'],['(P4)','Período 4'],['(PC)','Promedio Grupo de Competencias Específicas'],['(C.F.)','Calificación Final'],['(C.E.C.)','Calificación Evaluación Completiva'],['(C.C.F.)','Calificación Completiva Final'],['(C.E. EX)','Calificación Evaluación Extraordinaria'],['(C.EX.F.)','Calificación Extraordinaria Final'],['(C.E.)','Calificación Especial'],['(A)','Aprobado'],['(R)','Reprobado']]
+
+function PaginaNotasFinales({data:d,estudiante:e,salto}:{data:DatosCursoReporte;estudiante:DatosCursoReporte['estudiantes'][number];salto:boolean}){
+ const originales=d.asignaturas.slice().sort((a,b)=>a.ordenBoletin-b.ordenBoletin),regulares=originales.filter(a=>!a.esOptativa),optativas=originales.filter(a=>a.esOptativa),asignaturas=regulares.concat(optativas)
+ const competencias=asignaturas.find(a=>a.competencias.length)?.competencias||[],fmtNota=(x:number|null)=>x===null?'':fmt(x),asistencia=(p:number)=>e.asistencia.periodos[p]??null
+ const anchos=[2.3,12,...Array(competencias.length*4).fill(2.45),...Array(4).fill(3),2.9,...Array(8).fill(2.6),2.6,2.6,3.6,3.6],total=anchos.reduce((sum,n)=>sum+n,0)
+ const rotar=(texto:string)=><th key={texto} rowSpan={2} className="boletin-final-vertical"><span>{texto}</span></th>
+ const mensaje=e.situacion==='PROMOVIDO'?'Felicitaciones por este logro tan importante, tu dedicación y esfuerzo han dado frutos, y este es solo el comienzo de muchas metas alcanzadas. Sigue trabajando con constancia y entusiasmo, porque un gran futuro te espera.':e.situacion==='REPITENTE'?'Aunque este año no haya dado el resultado que esperabas, recuerda que cada desafío es una oportunidad para aprender y mejorar. Lo más importante es seguir adelante con esfuerzo y determinación. Estoy seguro que el próximo año lograrás grandes cosas.':''
+ const nombreArea=(a:typeof asignaturas[number])=>a.esOptativa?a.nombreReporte.replace(/^\s*optativa\s*[:\-–—(]*\s*/i,'').replace(/\)\s*$/,'').trim()||'Matemáticas & Tecnología':a.nombreReporte
+ return <article className={`boletin-final-pagina${salto?' salto':''}`}>
+  <header className="boletin-final-top"><span className="boletin-final-numero">{e.num}</span><span className="boletin-final-campo"><small>Nombre(s) y apellido(s)</small><b>{e.nombre}</b></span><span className="boletin-final-campo"><small>Grado</small><b>{d.grado}</b></span><span className="boletin-final-campo"><small>Sección</small><b>{d.seccion}</b></span></header>
+  <div className="boletin-final-barra">CALIFICACIONES DE RENDIMIENTO</div>
+  <table className="boletin-final-tabla"><colgroup>{anchos.map((ancho,i)=><col key={i} style={{width:`${100*ancho/total}%`}}/>)}</colgroup><thead>
+   <tr className="boletin-final-h1"><th colSpan={2} rowSpan={2}>COMPETENCIAS FUNDAMENTALES</th>{competencias.map((c,i)=><th key={c.codigo||i} colSpan={4} rowSpan={2}>{c.nombre}</th>)}<th colSpan={4} rowSpan={2}>PROMEDIO GRUPO DE COMPETENCIAS ESPECÍFICAS</th><th rowSpan={3} className="boletin-final-vertical boletin-final-col-calificacion"><span>Calificación Final del Área</span></th><th colSpan={4}>CALIFICACIÓN COMPLETIVA</th><th colSpan={4}>CALIFICACIÓN EXTRAORDINARIA</th><th colSpan={2}>EVALUACIÓN ESPECIAL</th><th colSpan={2} rowSpan={2}>SITUACIÓN FINAL EN LA ASIGNATURA</th></tr>
+   <tr className="boletin-final-h2">{CAMPOS_COMPLETIVA.map(rotar)}{CAMPOS_EXTRAORDINARIA.map(rotar)}{['C.F.','C.E.'].map(rotar)}</tr>
+   <tr className="boletin-final-h3"><th colSpan={2}>PERÍODOS</th>{competencias.map(c=><Fragment key={c.codigo}>{[1,2,3,4].map(p=><th key={`${c.codigo}-${p}`}>P{p}</th>)}</Fragment>)}{[1,2,3,4].map(p=><th key={`pc-${p}`}>PC{p}</th>)}<th>A</th><th>R</th></tr>
+  </thead><tbody>{asignaturas.map((a,i)=>{const x=e.registros[a.id];return <tr key={a.id} style={{height:asignaturas.length?`${4.6/asignaturas.length}in`:undefined}}>
+   {i===0&&regulares.length>0&&<td rowSpan={regulares.length} className="boletin-final-vertical boletin-final-area"><span>ÁREAS CURRICULARES</span></td>}{i===regulares.length&&optativas.length>0&&<td rowSpan={optativas.length} className="boletin-final-vertical boletin-final-area boletin-final-optativa"><span>SALIDA OPTATIVA</span></td>}
+   <td className="boletin-final-asignatura">{nombreArea(a)}</td>{competencias.map((c,ci)=><Fragment key={c.codigo||ci}>{[0,1,2,3].map(p=><td key={`${c.codigo||ci}-${p}`}>{fmtNota(x.calc.vigente[p]?.[ci]??null)}</td>)}</Fragment>)}{Array.from({length:4},(_,ci)=><td key={`pc-${ci}`}>{fmtNota(x.calc.pcMostrar[ci]??null)}</td>)}<td>{fmtNota(x.calc.cf)}</td><td>{fmtNota(x.calc.comp.base)}</td><td>{fmtNota(x.calc.comp.cec)}</td><td>{fmtNota(x.calc.comp.mitad)}</td><td>{fmtNota(x.calc.comp.ccf)}</td><td>{fmtNota(x.calc.ext.base)}</td><td>{fmtNota(x.calc.ext.ceex)}</td><td>{fmtNota(x.calc.ext.mitad)}</td><td>{fmtNota(x.calc.ext.cexf)}</td><td>{fmtNota(x.calc.esp.cf)}</td><td>{fmtNota(x.calc.esp.cesp)}</td><td><b>{x.calc.cf!==null&&x.calc.A!==null&&x.calc.A>=d.min?'✓':''}</b></td><td/></tr>})}</tbody></table>
+  <footer className="boletin-final-resumen">
+   <div className="boletin-final-caja boletin-final-asistencia"><div className="boletin-final-titulo-caja">RESUMEN DE ASISTENCIA DEL/LA ESTUDIANTE</div><table><colgroup><col style={{width:'17%'}}/><col style={{width:'21%'}}/><col style={{width:'21%'}}/><col style={{width:'20.5%'}}/><col style={{width:'20.5%'}}/></colgroup><tbody><tr><th rowSpan={2}>Períodos</th><th>Asistencia</th><th>Ausencia</th><th colSpan={2}>% Anual</th></tr><tr><th>%</th><th>%</th><th>Asistencia</th><th>Ausencia</th></tr>{[1,2,3,4].map(p=><tr key={p}><td><b>P{p}</b></td><td>{fmtNota(asistencia(p))}</td><td>{fmtNota(asistencia(p)===null?null:100-asistencia(p)!)}</td>{p===1&&<><td rowSpan={4}>{fmtNota(e.asistencia.anual)}</td><td rowSpan={4}>{fmtNota(e.asistencia.anual===null?null:100-e.asistencia.anual)}</td></>}</tr>)}</tbody></table></div>
+   <div className="boletin-final-caja boletin-final-leyenda"><div className="boletin-final-titulo-caja boletin-final-titulo-claro">LEYENDA:</div><div className="boletin-final-leyenda-lista">{LEYENDA_FINAL.map(([clave,texto])=><div key={clave}><b>{clave}</b>{texto}</div>)}</div></div>
+   <div className="boletin-final-lateral"><div className="boletin-final-situacion"><div className="boletin-final-situacion-titulo">SITUACIÓN DEL/DE LA ESTUDIANTE</div><div>Promovido/a:</div><div>{e.situacion==='PROMOVIDO'?'X':''}</div><div>Repitente:</div><div>{e.situacion==='REPITENTE'?'X':''}</div></div><div className="boletin-final-condicion">CONDICIÓN FINAL DEL/DE LA ESTUDIANTE:</div><div className="boletin-final-mensaje">{mensaje}</div></div>
+  </footer>
+ </article>
 }
