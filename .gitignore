@@ -1,38 +1,32 @@
 
 # Dependencias
+node_modules/
 **/node_modules/
 
-# Archivos compilados
-**/dist/
-**/build/
-**/coverage/
+# Archivos de entorno y claves
+.env
+.env.*
+!.env.example
+!.env.*.example
 
-# Variables de entorno y credenciales
-**/.env
-**/.env.*
-!**/.env.example
-!**/.env.sample
-
-# Semilla con datos academicos personales reales.
-# En el repositorio solo vive sga-seed.anon.json (datos anonimizados).
-database/seeds/sga-seed.json
+# Compilaciones
+dist/
+build/
+coverage/
+*.tsbuildinfo
 
 # Registros
-**/*.log
-npm-debug.log*
+*.log
+logs/
 
-# Bases de datos locales
-**/*.sqlite
-**/*.sqlite3
-**/*.db
-**/*.db-wal
-**/*.db-shm
-
-# Archivos temporales de Windows
-Thumbs.db
-Desktop.ini
+# Archivos temporales
 .DS_Store
+Thumbs.db
+*.tmp
 
-# Configuración local de editores
+# Editores
 .vscode/
 .idea/
+
+# Archivos locales de configuración
+*.local
